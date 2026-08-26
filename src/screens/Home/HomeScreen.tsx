@@ -15,6 +15,7 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,7 +32,7 @@ import CategoryProgressRow from '../../components/ui/CategoryProgressRow';
 import { useResumenMensual } from '../../hooks/useResumenMensual';
 import { useCategorias } from '../../hooks/useCategorias';
 import { useAuth } from '../../context/AuthContext';
-import { useAvatar } from '../../hooks/useAvatar';
+import { useAvatar, AVATAR_IMAGES } from '../../hooks/useAvatar';
 import { useStreak } from '../../hooks/useStreak';
 
 // Emojis por nombre de categoría
@@ -167,7 +168,11 @@ export default function HomeScreen() {
             <Text style={styles.subGreeting}>Aquí está tu resumen</Text>
           </View>
           <TouchableOpacity style={styles.avatarBtn} activeOpacity={0.7} onPress={() => navigation.navigate('Profile')}>
-            <Text style={styles.avatarText}>{displayAvatar}</Text>
+            {AVATAR_IMAGES[displayAvatar || ''] ? (
+              <Image source={AVATAR_IMAGES[displayAvatar]} style={{ width: 28, height: 28 }} resizeMode="contain" />
+            ) : (
+              <Text style={styles.avatarText}>{displayAvatar}</Text>
+            )}
           </TouchableOpacity>
         </View>
 

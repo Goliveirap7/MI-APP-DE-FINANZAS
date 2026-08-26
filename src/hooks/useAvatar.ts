@@ -5,18 +5,20 @@ import { DeviceEventEmitter } from 'react-native';
 const AVATAR_STORAGE_KEY = '@user_avatar';
 export const AVATAR_CHANGED_EVENT = 'onAvatarChanged';
 
-export const AVATARS = [
-  '🐼', // Oso panda
-  '🐱', // Gato
-  '🦫', // Marmota / Capibara
-  '🐹', // Hamster
-  '🐶', // Perro
-  '🐦', // Gorrión
-  '🦦', // Comadreja / Nutria
-  '🦆', // Ornitorrinco / Pato
-  '🐧', // Pingüino
-  '🦊', // Zorro extra para llegar a 10
-];
+export const AVATAR_IMAGES: Record<string, any> = {
+  BUHO: require('../../assets/avatars/BUHO.png'),
+  CAPIBARA: require('../../assets/avatars/CAPIBARA.png'),
+  CASTOR: require('../../assets/avatars/CASTOR.png'),
+  GATO: require('../../assets/avatars/GATO.png'),
+  HAMSTER: require('../../assets/avatars/HAMSTER.png'),
+  PANDA: require('../../assets/avatars/PANDA.png'),
+  PATO: require('../../assets/avatars/PATO.png'),
+  PERRO: require('../../assets/avatars/PERRO.png'),
+  PINGUINO: require('../../assets/avatars/PINGUINO.png'),
+  ZORRO: require('../../assets/avatars/ZORRO.png'),
+};
+
+export const AVATAR_KEYS = Object.keys(AVATAR_IMAGES);
 
 export function useAvatar() {
   // Inicializa con null o un valor por defecto

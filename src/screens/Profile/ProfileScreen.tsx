@@ -11,6 +11,7 @@ import {
   StatusBar,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,7 +23,7 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { importShioData } from '../../utils/importShio';
 import { DEFAULT_ESPACIO_ID } from '../../db/seed';
-import { useAvatar, AVATARS } from '../../hooks/useAvatar';
+import { useAvatar, AVATAR_KEYS, AVATAR_IMAGES } from '../../hooks/useAvatar';
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
@@ -170,17 +171,17 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Elige tu Avatar</Text>
           <View style={styles.avatarGrid}>
-            {AVATARS.map((emoji) => (
+            {AVATAR_KEYS.map((key) => (
               <TouchableOpacity
-                key={emoji}
+                key={key}
                 style={[
                   styles.avatarOption,
-                  avatar === emoji && styles.avatarOptionSelected
+                  avatar === key && styles.avatarOptionSelected
                 ]}
-                onPress={() => saveAvatar(emoji)}
+                onPress={() => saveAvatar(key)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.avatarEmoji}>{emoji}</Text>
+                <Image source={AVATAR_IMAGES[key]} style={styles.avatarImage} resizeMode="contain" />
               </TouchableOpacity>
             ))}
           </View>
@@ -300,7 +301,7 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'center', marginTop: Spacing.xs },
   avatarOption: { width: 50, height: 50, borderRadius: Radius.full, backgroundColor: colors.bgInput, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
   avatarOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primary + '20' },
-  avatarEmoji: { fontSize: 24 },
+  avatarImage: { width: 34, height: 34 },
 
   input: { backgroundColor: colors.bgInput, borderRadius: Radius.md, borderWidth: 1, borderColor: colors.border, color: colors.textPrimary, fontSize: FontSize.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md },
   inputDisabled: { color: colors.textMuted, opacity: 0.7 },
