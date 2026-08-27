@@ -2,7 +2,7 @@
  * HomeScreen — Pantalla principal: Resumen del mes (RF-07)
  * DATOS REALES desde SQLite vía useResumenMensual + useCategorias
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,10 +16,13 @@ import {
   TouchableWithoutFeedback,
   Alert,
   Image,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { showToast } from '../../utils/toast';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -90,23 +93,126 @@ const getGreeting = (username: string) => {
   }
 };
 
+const SyncAvatar = ({
+  displayAvatar,
+  syncProgress,
+  colors,
+  onPress
+}: {
+  displayAvatar: string | null;
+  syncProgress: number;
+  colors: ThemeColors;
+  onPress: () => void;
+}) => {
+  const waveScale = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(0)).current;
+
+  const isSyncing = syncProgress > 0 && syncProgress < 1;
+  const isSuccess = syncProgress === 1;
+
+  useEffect(() => {
+    let anim: Animated.CompositeAnimation | null = null;
+    if (isSyncing) {
+      waveScale.setValue(0);
+      anim = Animated.loop(
+        Animated.timing(waveScale, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        })
+      );
+      anim.start();
+      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(checkScale, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    } else if (isSuccess) {
+      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(checkScale, { toValue: 1, duration: 300, easing: Easing.back(1.5), useNativeDriver: true }).start();
+    } else {
+      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(checkScale, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+      waveScale.setValue(0);
+    }
+    return () => {
+      if (anim) anim.stop();
+    };
+  }, [isSyncing, isSuccess]);
+
+  return (
+    <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={{ width: 63, height: 63, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Efecto Radar / Pulsación */}
+      {isSyncing && (
+        <>
+          <Animated.View style={{
+            position: 'absolute', width: 42, height: 42, borderRadius: 21,
+            backgroundColor: colors.primary,
+            transform: [{ scale: waveScale.interpolate({ inputRange: [0, 1], outputRange: [1, 1.6] }) }],
+            opacity: waveScale.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] })
+          }} />
+          <Animated.View style={{
+            position: 'absolute', width: 42, height: 42, borderRadius: 21,
+            borderWidth: 1.5, borderColor: colors.primary,
+            transform: [{ scale: waveScale.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
+            opacity: waveScale.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] })
+          }} />
+        </>
+      )}
+      <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary + '30', borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {AVATAR_IMAGES[displayAvatar || ''] ? (
+          <Image source={AVATAR_IMAGES[displayAvatar!]} style={{ width: 28, height: 28 }} resizeMode="contain" />
+        ) : (
+          <Text style={{ color: colors.primary, fontSize: FontSize.md, fontWeight: FontWeight.bold }}>{displayAvatar}</Text>
+        )}
+        <Animated.View style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+          opacity: checkScale.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }),
+          transform: [{ scale: checkScale }]
+        }}>
+          <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>✓</Text>
+        </Animated.View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const getBackgroundImage = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return require('../../../assets/amanecer.png');
+  if (hour >= 12 && hour < 15) return require('../../../assets/mediodia.png');
+  if (hour >= 15 && hour < 18) return require('../../../assets/atardecer.png');
+  if (hour >= 18 && hour < 21) return require('../../../assets/anochecer.png');
+  return require('../../../assets/medianoche.png');
+};
+
 export default function HomeScreen() {
   const [mes, setMes] = useState(mesActualISO());
   const [showMenu, setShowMenu] = useState(false);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const { signOut, user } = useAuth();
   const { colors, toggleTheme, isDark } = useTheme();
   const { avatar } = useAvatar();
   const { streak } = useStreak();
-  const { triggerSync } = useSyncEngine();
+  const { triggerSync, syncProgress } = useSyncEngine();
   const [isManualSyncing, setIsManualSyncing] = useState(false);
 
   const styles = React.useMemo(() => getStyles(colors), [colors]);
+  const currentHour = new Date().getHours();
+  const forceLightText = !isDark && (currentHour >= 18 || currentHour < 5);
 
   const { resumen, categoriasReal, patrimonio, loading, refetch } =
     useResumenMensual(mes);
   const { catEgreso } = useCategorias();
+
+  // Refrescar datos cada vez que la pantalla obtiene el foco
+  useEffect(() => {
+    if (isFocused) {
+      refetch();
+    }
+  }, [isFocused, refetch]);
 
   const porcentajeGastado =
     resumen && resumen.disponible > 0
@@ -155,299 +261,313 @@ export default function HomeScreen() {
   const greetingText = React.useMemo(() => getGreeting(user?.user_metadata?.username || ''), [user?.user_metadata?.username]);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.bg} />
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── HEADER ────────────────────────────────── */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.hamburgerBtn} activeOpacity={0.7} onPress={() => setShowMenu(true)}>
-            <Text style={styles.hamburgerText}>☰</Text>
-          </TouchableOpacity>
-          <View style={{ flex: 1, paddingHorizontal: Spacing.md }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-              <Text style={styles.greeting}>{greetingText}</Text>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {isFocused && <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />}
+
+      {/* Dynamic Background Image */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 380 }}>
+        <Image source={getBackgroundImage()} style={{ width: '100%', height: '100%', opacity: isDark ? 0.6 : 0.9 }} resizeMode="cover" />
+        <LinearGradient
+          colors={['transparent', colors.bg]}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 180 }}
+        />
+      </View>
+
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── HEADER ────────────────────────────────── */}
+          <View style={styles.headerRow}>
+            {/* Left side fixed width 56 to balance right side */}
+            <View style={{ width: 56, alignItems: 'flex-start', justifyContent: 'center' }}>
+              <TouchableOpacity style={styles.hamburgerBtn} activeOpacity={0.7} onPress={() => setShowMenu(true)}>
+                <Text style={styles.hamburgerText}>☰</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.subGreeting}>Aquí está tu resumen</Text>
+            
+            {/* Center flex area */}
+            <View style={{ flex: 1, paddingHorizontal: Spacing.md, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={[styles.greeting, forceLightText && { color: '#ffffff' }, { textAlign: 'center' }]}>
+                {greetingText}
+              </Text>
+            </View>
+            <SyncAvatar
+              displayAvatar={displayAvatar}
+              syncProgress={syncProgress}
+              colors={colors}
+              onPress={() => navigation.navigate('Profile')}
+            />
           </View>
-          <TouchableOpacity style={styles.avatarBtn} activeOpacity={0.7} onPress={() => navigation.navigate('Profile')}>
-            {AVATAR_IMAGES[displayAvatar || ''] ? (
-              <Image source={AVATAR_IMAGES[displayAvatar]} style={{ width: 28, height: 28 }} resizeMode="contain" />
-            ) : (
-              <Text style={styles.avatarText}>{displayAvatar}</Text>
-            )}
-          </TouchableOpacity>
-        </View>
 
-        {/* Modal Menú de Hamburguesa */}
-        <Modal visible={showMenu} transparent={true} animationType="fade" onRequestClose={() => setShowMenu(false)}>
-          <TouchableWithoutFeedback onPress={() => setShowMenu(false)}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.menuContainer}>
+          {/* Modal Menú de Hamburguesa */}
+          <Modal visible={showMenu} transparent={true} animationType="fade" onRequestClose={() => setShowMenu(false)}>
+            <TouchableWithoutFeedback onPress={() => setShowMenu(false)}>
+              <View style={styles.modalOverlay}>
+                <View style={styles.menuContainer}>
 
-                <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Streak'); }}>
-                  <Text style={styles.menuItemIcon}>🔥</Text>
-                  <Text style={styles.menuItemText}>Mi Racha</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Streak'); }}>
+                    <Text style={styles.menuItemIcon}>🔥</Text>
+                    <Text style={styles.menuItemText}>Mi Racha</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Debts'); }}>
-                  <Text style={styles.menuItemIcon}>🤝</Text>
-                  <Text style={styles.menuItemText}>Mis Deudas</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Debts'); }}>
+                    <Text style={styles.menuItemIcon}>🤝</Text>
+                    <Text style={styles.menuItemText}>Mis Deudas</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Investments'); }}>
-                  <Text style={styles.menuItemIcon}>📈</Text>
-                  <Text style={styles.menuItemText}>Mis Inversiones</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Investments'); }}>
+                    <Text style={styles.menuItemIcon}>📈</Text>
+                    <Text style={styles.menuItemText}>Mis Inversiones</Text>
+                  </TouchableOpacity>
 
-                <View style={styles.menuDivider} />
+                  <View style={styles.menuDivider} />
 
-                <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
-                  <Text style={styles.menuItemIcon}>{isDark ? '☀️' : '🌙'}</Text>
-                  <Text style={styles.menuItemText}>{isDark ? 'Modo Diurno' : 'Modo Nocturno'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.menuItem} onPress={async () => {
-                  setShowMenu(false);
-                  setIsManualSyncing(true);
-                  try {
-                    await triggerSync();
-                    refetch();
-                    Alert.alert('Éxito', 'Sincronización completada.');
-                  } catch (e) {
-                    Alert.alert('Error', 'No se pudo sincronizar.');
-                  } finally {
-                    setIsManualSyncing(false);
-                  }
-                }}>
-                  <Text style={styles.menuItemIcon}>☁️</Text>
-                  <Text style={styles.menuItemText}>{isManualSyncing ? 'Sincronizando...' : 'Sincronizar'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
-                  <Text style={styles.menuItemIcon}>📊</Text>
-                  <Text style={styles.menuItemText}>Exportar a Excel</Text>
-                </TouchableOpacity>
-                <View style={styles.menuDivider} />
-                <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-                  <Text style={styles.menuItemIcon}>🚪</Text>
-                  <Text style={[styles.menuItemText, { color: colors.expense }]}>Cerrar sesión</Text>
+                  <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
+                    <Text style={styles.menuItemIcon}>{isDark ? '☀️' : '🌙'}</Text>
+                    <Text style={styles.menuItemText}>{isDark ? 'Modo Diurno' : 'Modo Nocturno'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.menuItem} onPress={async () => {
+                    setShowMenu(false);
+                    setIsManualSyncing(true);
+                    try {
+                      await triggerSync();
+                      refetch();
+                    } catch (e) {
+                      showToast('Error: No se pudo sincronizar.');
+                    } finally {
+                      setIsManualSyncing(false);
+                    }
+                  }}>
+                    <Text style={styles.menuItemIcon}>☁️</Text>
+                    <Text style={styles.menuItemText}>{isManualSyncing ? 'Sincronizando...' : 'Sincronizar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+                    <Text style={styles.menuItemIcon}>📊</Text>
+                    <Text style={styles.menuItemText}>Exportar a Excel</Text>
+                  </TouchableOpacity>
+                  <View style={styles.menuDivider} />
+                  <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+                    <Text style={styles.menuItemIcon}>🚪</Text>
+                    <Text style={[styles.menuItemText, { color: colors.expense }]}>Cerrar sesión</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+
+          {/* ── SELECTOR DE MES ───────────────────────── */}
+          <MonthSelector mes={mes} onChange={(m) => { setMes(m); }} textColor={forceLightText ? '#ffffff' : undefined} />
+
+          {/* ── LOADING ───────────────────────────────── */}
+          {loading && (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.loadingText}>Calculando…</Text>
+            </View>
+          )}
+
+          {/* ── HERO CARD: SALDO ACTUAL ─────────────────── */}
+          {!loading && patrimonio && (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => navigation.navigate('BalanceDetail')}
+            >
+              <LinearGradient
+                colors={isDark ? ['#0d3d2e', '#112240'] : [colors.primary, '#00a87a']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.heroCard}
+              >
+                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>Saldo Disponible</Text>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={[styles.heroAmount, { color: '#ffffff', width: 200 }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {isBalanceHidden ? 'S/ *******' : formatCurrency(resumen?.diferencia ?? 0)}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsBalanceHidden(!isBalanceHidden)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Image
+                      source={isBalanceHidden ? require('../../../assets/view.png') : require('../../../assets/no view.png')}
+                      style={{ width: 24, height: 24, tintColor: '#ffffff' }}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.heroSubtext, { color: 'rgba(255,255,255,0.85)' }]}>
+                  En tu cartera virtual y billetera
+                </Text>
+
+                {resumen && resumen.saldo_inicial > 0 && (
+                  <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                    <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
+                      ↑ {formatCurrency(resumen.saldo_inicial)} transferido de meses anteriores
+                    </Text>
+                  </View>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          {/* ── INGRESOS / EGRESOS ────────────────────── */}
+          {!loading && resumen && (
+            <View style={styles.row2}>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'ingreso' })}>
+                <Card style={styles.halfCard}>
+                  <View style={styles.flowIcon}>
+                    <Text style={styles.flowEmoji}>⬆</Text>
+                  </View>
+                  <Text style={styles.flowLabel}>Ingresos</Text>
+                  <Text style={[styles.flowAmount, { color: colors.income }]}>
+                    {formatCurrency(resumen.ingresos_totales)}
+                  </Text>
+                </Card>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso' })}>
+                <Card style={styles.halfCard}>
+                  <View style={[styles.flowIcon, { backgroundColor: colors.expense + '20' }]}>
+                    <Text style={styles.flowEmoji}>⬇</Text>
+                  </View>
+                  <Text style={styles.flowLabel}>Egresos</Text>
+                  <Text style={[styles.flowAmount, { color: colors.expense }]}>
+                    {formatCurrency(resumen.egresos_totales)}
+                  </Text>
+                </Card>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ── PRESUPUESTO POR CATEGORÍA ─────────────── */}
+          {!loading && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Gastos por categoría</Text>
+                <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Budget')}>
+                  <Text style={styles.sectionLink}>Ver detalle →</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
 
-        {/* ── SELECTOR DE MES ───────────────────────── */}
-        <MonthSelector mes={mes} onChange={(m) => { setMes(m); }} />
+              {resumen && resumen.egresos_totales === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, opacity: 0.7 }}>
+                  <Text style={{ fontSize: 32, marginBottom: Spacing.xs }}>🦗</Text>
+                  <Text style={styles.emptyText}>Tu billetera está muy callada hoy...</Text>
+                  <Text style={[styles.emptyText, { fontSize: FontSize.xs, marginTop: 4 }]}>Toca el botón + para registrar tu primer gasto</Text>
+                </View>
+              ) : categoriaRows.length > 0 ? (
+                <Card>
+                  {categoriaRows.map((cat, idx) => (
+                    <React.Fragment key={cat.nombre}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso', categoriaId: cat.id })}
+                      >
+                        <CategoryProgressRow data={cat} />
+                      </TouchableOpacity>
+                      {idx < categoriaRows.length - 1 && <View style={styles.divider} />}
+                    </React.Fragment>
+                  ))}
+                </Card>
+              ) : (
+                <Card>
+                  <Text style={styles.emptyText}>No hay categorías disponibles.</Text>
+                </Card>
+              )}
+            </>
+          )}
 
-        {/* ── LOADING ───────────────────────────────── */}
-        {loading && (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>Calculando…</Text>
-          </View>
-        )}
+          {/* ── PRESUPUESTO MENSUAL ─────── */}
+          {!loading && resumen && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Presupuesto del mes</Text>
+              </View>
 
-        {/* ── HERO CARD: SALDO ACTUAL ─────────────────── */}
-        {!loading && patrimonio && (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate('BalanceDetail')}
-          >
+              <Card>
+                <Text style={styles.patrimonioTotal}>
+                  {formatCurrency(resumen.disponible)}
+                </Text>
+                <Text style={styles.patrimonioSubLabel}>Total disponible para gastar</Text>
+
+                <View style={styles.heroTrackOuter}>
+                  <View
+                    style={[
+                      styles.heroTrackInner,
+                      {
+                        width: `${Math.min(porcentajeGastado * 100, 100)}%`,
+                        backgroundColor:
+                          porcentajeGastado > 0.9 ? colors.expense : colors.primary,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <Text style={[styles.heroSubtext, { marginTop: Spacing.xs, textAlign: 'center' }]}>
+                  {formatPercent(porcentajeGastado)} utilizado ·{' '}
+                  <Text style={{ color: diferenciaPositiva ? colors.income : colors.expense, fontWeight: FontWeight.semibold }}>
+                    {diferenciaPositiva ? '+' : ''}
+                    {formatCurrency(resumen.diferencia)} restante
+                  </Text>
+                </Text>
+              </Card>
+            </>
+          )}
+
+          {/* ── PATRIMONIO TOTAL ──────────────────────── */}
+          {!loading && patrimonio && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Otros Activos</Text>
+              </View>
+
+              <Card>
+                <PatrimonioRow label="💵 Patrimonio Total" amount={patrimonio.total} color={colors.textPrimary} />
+                <View style={styles.divider} />
+                <PatrimonioRow label="🤝 Me deben" amount={patrimonio.me_deben} color={colors.income} />
+                <View style={styles.divider} />
+                <PatrimonioRow label="📈 Invertido" amount={patrimonio.invertido} color={colors.secondary} />
+                {patrimonio.debo > 0 && (
+                  <>
+                    <View style={styles.divider} />
+                    <PatrimonioRow label="💳 Debo" amount={-patrimonio.debo} color={colors.expense} />
+                  </>
+                )}
+              </Card>
+            </>
+          )}
+
+          <View style={{ height: Spacing.xxl }} />
+        </ScrollView>
+
+        {/* ── STREAK FAB ───────────────────────────── */}
+        {streak > 1 && (
+          <TouchableOpacity style={styles.streakFab} activeOpacity={0.85} onPress={() => navigation.navigate('Streak')}>
             <LinearGradient
-              colors={isDark ? ['#0d3d2e', '#112240'] : [colors.primary, '#00a87a']}
+              colors={['#ff9800', '#f57c00']}
+              style={styles.fabGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.heroCard}
             >
-              <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>Saldo Disponible</Text>
-
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={[styles.heroAmount, { color: '#ffffff', width: 200 }]} numberOfLines={1} adjustsFontSizeToFit>
-                  {isBalanceHidden ? 'S/ *******' : formatCurrency(resumen?.diferencia ?? 0)}
-                </Text>
-                <TouchableOpacity onPress={() => setIsBalanceHidden(!isBalanceHidden)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Image
-                    source={isBalanceHidden ? require('../../../assets/view.png') : require('../../../assets/no view.png')}
-                    style={{ width: 24, height: 24, tintColor: '#ffffff' }}
-                    resizeMode="contain"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.heroSubtext, { color: 'rgba(255,255,255,0.85)' }]}>
-                En tu cartera virtual y billetera
-              </Text>
-
-              {resumen && resumen.saldo_inicial > 0 && (
-                <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                  <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
-                    ↑ {formatCurrency(resumen.saldo_inicial)} transferido de meses anteriores
-                  </Text>
-                </View>
-              )}
+              <Text style={styles.streakFabText}>🔥 {streak}</Text>
             </LinearGradient>
           </TouchableOpacity>
         )}
 
-        {/* ── INGRESOS / EGRESOS ────────────────────── */}
-        {!loading && resumen && (
-          <View style={styles.row2}>
-            <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'ingreso' })}>
-              <Card style={styles.halfCard}>
-                <View style={styles.flowIcon}>
-                  <Text style={styles.flowEmoji}>⬆</Text>
-                </View>
-                <Text style={styles.flowLabel}>Ingresos</Text>
-                <Text style={[styles.flowAmount, { color: colors.income }]}>
-                  {formatCurrency(resumen.ingresos_totales)}
-                </Text>
-              </Card>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso' })}>
-              <Card style={styles.halfCard}>
-                <View style={[styles.flowIcon, { backgroundColor: colors.expense + '20' }]}>
-                  <Text style={styles.flowEmoji}>⬇</Text>
-                </View>
-                <Text style={styles.flowLabel}>Egresos</Text>
-                <Text style={[styles.flowAmount, { color: colors.expense }]}>
-                  {formatCurrency(resumen.egresos_totales)}
-                </Text>
-              </Card>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── PRESUPUESTO POR CATEGORÍA ─────────────── */}
-        {!loading && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Gastos por categoría</Text>
-              <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Budget')}>
-                <Text style={styles.sectionLink}>Ver detalle →</Text>
-              </TouchableOpacity>
-            </View>
-
-            {resumen && resumen.egresos_totales === 0 ? (
-              <View style={{ alignItems: 'center', paddingVertical: Spacing.xl, opacity: 0.7 }}>
-                <Text style={{ fontSize: 32, marginBottom: Spacing.xs }}>🦗</Text>
-                <Text style={styles.emptyText}>Tu billetera está muy callada hoy...</Text>
-                <Text style={[styles.emptyText, { fontSize: FontSize.xs, marginTop: 4 }]}>Toca el botón + para registrar tu primer gasto</Text>
-              </View>
-            ) : categoriaRows.length > 0 ? (
-              <Card>
-                {categoriaRows.map((cat, idx) => (
-                  <React.Fragment key={cat.nombre}>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso', categoriaId: cat.id })}
-                    >
-                      <CategoryProgressRow data={cat} />
-                    </TouchableOpacity>
-                    {idx < categoriaRows.length - 1 && <View style={styles.divider} />}
-                  </React.Fragment>
-                ))}
-              </Card>
-            ) : (
-              <Card>
-                <Text style={styles.emptyText}>No hay categorías disponibles.</Text>
-              </Card>
-            )}
-          </>
-        )}
-
-        {/* ── PRESUPUESTO MENSUAL ─────── */}
-        {!loading && resumen && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Presupuesto del mes</Text>
-            </View>
-
-            <Card>
-              <Text style={styles.patrimonioTotal}>
-                {formatCurrency(resumen.disponible)}
-              </Text>
-              <Text style={styles.patrimonioSubLabel}>Total disponible para gastar</Text>
-
-              <View style={styles.heroTrackOuter}>
-                <View
-                  style={[
-                    styles.heroTrackInner,
-                    {
-                      width: `${Math.min(porcentajeGastado * 100, 100)}%`,
-                      backgroundColor:
-                        porcentajeGastado > 0.9 ? colors.expense : colors.primary,
-                    },
-                  ]}
-                />
-              </View>
-
-              <Text style={[styles.heroSubtext, { marginTop: Spacing.xs, textAlign: 'center' }]}>
-                {formatPercent(porcentajeGastado)} utilizado ·{' '}
-                <Text style={{ color: diferenciaPositiva ? colors.income : colors.expense, fontWeight: FontWeight.semibold }}>
-                  {diferenciaPositiva ? '+' : ''}
-                  {formatCurrency(resumen.diferencia)} restante
-                </Text>
-              </Text>
-            </Card>
-          </>
-        )}
-
-        {/* ── PATRIMONIO TOTAL ──────────────────────── */}
-        {!loading && patrimonio && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Otros Activos</Text>
-            </View>
-
-            <Card>
-              <PatrimonioRow label="💵 Patrimonio Total" amount={patrimonio.total} color={colors.textPrimary} />
-              <View style={styles.divider} />
-              <PatrimonioRow label="🤝 Me deben" amount={patrimonio.me_deben} color={colors.income} />
-              <View style={styles.divider} />
-              <PatrimonioRow label="📈 Invertido" amount={patrimonio.invertido} color={colors.secondary} />
-              {patrimonio.debo > 0 && (
-                <>
-                  <View style={styles.divider} />
-                  <PatrimonioRow label="💳 Debo" amount={-patrimonio.debo} color={colors.expense} />
-                </>
-              )}
-            </Card>
-          </>
-        )}
-
-        <View style={{ height: Spacing.xxl }} />
-      </ScrollView>
-
-      {/* ── STREAK FAB ───────────────────────────── */}
-      {streak > 1 && (
-        <TouchableOpacity style={styles.streakFab} activeOpacity={0.85} onPress={() => navigation.navigate('Streak')}>
+        {/* ── FAB ───────────────────────────────────── */}
+        <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => navigation.navigate('AddTransaction')}>
           <LinearGradient
-            colors={['#ff9800', '#f57c00']}
+            colors={[colors.primary, '#00a87a']}
             style={styles.fabGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <Text style={styles.streakFabText}>🔥 {streak}</Text>
+            <Text style={styles.fabText}>＋</Text>
           </LinearGradient>
         </TouchableOpacity>
-      )}
-
-      {/* ── FAB ───────────────────────────────────── */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => navigation.navigate('AddTransaction')}>
-        <LinearGradient
-          colors={[colors.primary, '#00a87a']}
-          style={styles.fabGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <Text style={styles.fabText}>＋</Text>
-        </LinearGradient>
-      </TouchableOpacity>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -465,18 +585,14 @@ function PatrimonioRow({ label, amount, color }: { label: string; amount: number
 }
 
 const getStyles = (colors: ThemeColors) => StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-  },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   scroll: { flex: 1 },
-  content: { padding: Spacing.md, gap: Spacing.md },
+  content: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, paddingTop: Spacing.xs, gap: Spacing.md },
 
-  headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', marginBottom: Spacing.xs },
+  headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', marginBottom: Spacing.xs, zIndex: 10 },
   hamburgerBtn: { width: 42, height: 42, borderRadius: Radius.md, backgroundColor: colors.bgCardAlt, alignItems: 'center', justifyContent: 'center' },
   hamburgerText: { color: colors.textPrimary, fontSize: FontSize.xl },
-  greeting: { color: colors.textPrimary, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
+  greeting: { color: colors.textPrimary, fontSize: FontSize.xl, fontWeight: FontWeight.bold, marginTop: 35 },
   subGreeting: { color: colors.textSecondary, fontSize: FontSize.sm, marginTop: 2 },
   avatarBtn: { width: 42, height: 42, borderRadius: Radius.full, backgroundColor: colors.primary + '30', borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: colors.primary, fontSize: FontSize.md, fontWeight: FontWeight.bold },

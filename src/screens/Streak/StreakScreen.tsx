@@ -8,6 +8,7 @@ import {
   ScrollView,
   StatusBar,
   Platform,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -70,7 +71,7 @@ export default function StreakScreen() {
         {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={styles.backText}>{'<'}</Text>
+            <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>DAY STREAK</Text>
           <TouchableOpacity style={styles.infoBtn}>

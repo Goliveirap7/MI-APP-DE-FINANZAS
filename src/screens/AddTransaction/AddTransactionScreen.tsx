@@ -37,6 +37,7 @@ import { Image } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
 import * as Haptics from 'expo-haptics';
+import { SyncEngine } from '../../db/sync/SyncEngine';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -189,6 +190,9 @@ export default function AddTransactionScreen() {
         await insertTransaccion(db, data as any);
       }
 
+      // ☁️ Subida automática en segundo plano
+      new SyncEngine(db).pushToCloud();
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       const netState = await NetInfo.fetch();
@@ -231,6 +235,7 @@ export default function AddTransactionScreen() {
         setSaving(true);
         try {
           await deleteTransaccion(db, transaccionId);
+          new SyncEngine(db).pushToCloud();
           navigation.goBack();
         } catch (e: any) {
           Alert.alert('Error', e?.message ?? 'No se pudo eliminar.');

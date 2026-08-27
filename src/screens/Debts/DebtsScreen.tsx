@@ -28,6 +28,7 @@ import {
   ActivityIndicator,
   TextInput,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -43,6 +44,7 @@ import TypeToggle from '../../components/ui/TypeToggle';
 import { useDeudas, type FiltroDeuda } from '../../hooks/useDeudas';
 import type { NuevaDeuda } from '../../db/repositories/deudas';
 import { useTheme } from '../../context/ThemeContext';
+import { showToast } from '../../utils/toast';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -79,8 +81,8 @@ export default function DebtsScreen() {
 
   const handleAgregar = async () => {
     const montoNum = parseFloat(monto.replace(',', '.'));
-    if (!persona.trim()) { Alert.alert('Falta el nombre', 'Escribe el nombre de la persona.'); return; }
-    if (!montoNum || montoNum <= 0) { Alert.alert('Monto inválido', 'Ingresa un monto mayor a 0.'); return; }
+    if (!persona.trim()) { showToast('Falta el nombre: Escribe el nombre de la persona.'); return; }
+    if (!montoNum || montoNum <= 0) { showToast('Monto inválido: Ingresa un monto mayor a 0.'); return; }
 
     setSaving(true);
     try {
@@ -95,7 +97,7 @@ export default function DebtsScreen() {
       setShowForm(false);
       resetForm();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo guardar.');
+      showToast('Error: ' + (e?.message ?? 'No se pudo guardar.'));
     } finally {
       setSaving(false);
     }
@@ -128,10 +130,10 @@ export default function DebtsScreen() {
             activeOpacity={0.7} 
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backBtnText}>←</Text>
+            <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.pageTitle}>🤝 Deudas</Text>
-          <View style={styles.backBtn} />
+          <View style={{ width: 40, height: 40 }} />
         </View>
 
         {/* ── Resumen de totales ──────────────────── */}

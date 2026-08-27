@@ -26,6 +26,7 @@ import {
   ActivityIndicator,
   TextInput,
   Alert,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -39,6 +40,7 @@ import BottomSheet from '../../components/ui/BottomSheet';
 import { useInversiones } from '../../hooks/useInversiones';
 import type { NuevoActivo, ActivoLocal } from '../../db/repositories/inversiones';
 import { useTheme } from '../../context/ThemeContext';
+import { showToast } from '../../utils/toast';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -64,8 +66,8 @@ export default function InvestmentsScreen() {
 
   const handleAgregar = async () => {
     const montoNum = parseFloat(monto.replace(',', '.'));
-    if (!nombre.trim()) { Alert.alert('Nombre requerido', 'Escribe el nombre del activo.'); return; }
-    if (!montoNum || montoNum <= 0) { Alert.alert('Monto inválido', 'Ingresa un monto mayor a 0.'); return; }
+    if (!nombre.trim()) { showToast('Nombre requerido: Escribe el nombre del activo.'); return; }
+    if (!montoNum || montoNum <= 0) { showToast('Monto inválido: Ingresa un monto mayor a 0.'); return; }
 
     setSaving(true);
     try {
@@ -78,7 +80,7 @@ export default function InvestmentsScreen() {
       setShowForm(false);
       resetForm();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo guardar.');
+      showToast('Error: ' + (e?.message ?? 'No se pudo guardar.'));
     } finally {
       setSaving(false);
     }
@@ -87,7 +89,7 @@ export default function InvestmentsScreen() {
   const handleEditar = async () => {
     if (!editando) return;
     const montoNum = parseFloat(nuevoMonto.replace(',', '.'));
-    if (!montoNum || montoNum <= 0) { Alert.alert('Monto inválido'); return; }
+    if (!montoNum || montoNum <= 0) { showToast('Monto inválido'); return; }
 
     setSaving(true);
     try {
@@ -95,7 +97,7 @@ export default function InvestmentsScreen() {
       setEditando(null);
       setNuevoMonto('');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo actualizar.');
+      showToast('Error: ' + (e?.message ?? 'No se pudo actualizar.'));
     } finally {
       setSaving(false);
     }
@@ -117,10 +119,10 @@ export default function InvestmentsScreen() {
             activeOpacity={0.7} 
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backBtnText}>←</Text>
+            <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.pageTitle}>📈 Inversiones</Text>
-          <View style={styles.backBtn} />
+          <View style={{ width: 40, height: 40 }} />
         </View>
 
         {/* ── Hero: total invertido ───────────────── */}

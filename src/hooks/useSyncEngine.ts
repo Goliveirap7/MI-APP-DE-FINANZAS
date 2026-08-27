@@ -2,7 +2,7 @@
  * useSyncEngine.ts — Hook para iniciar y controlar la sincronización.
  * Se suscribe a cambios de red y dispara el motor.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { useDatabase } from '../db/database';
 import { SyncEngine } from '../db/sync/SyncEngine';
@@ -12,6 +12,8 @@ export function useSyncEngine() {
   const db = useDatabase();
   const { session } = useAuth();
   
+  const [syncProgress, setSyncProgress] = useState(0);
+
   // Guardamos la instancia en un ref para no recrearla
   const engineRef = useRef<SyncEngine | null>(null);
 
@@ -21,6 +23,7 @@ export function useSyncEngine() {
 
     if (!engineRef.current) {
       engineRef.current = new SyncEngine(db);
+      engineRef.current.onProgress = (p) => setSyncProgress(p);
     }
 
     // 1. Intentar sincronizar apenas arranca (si hay conexión)
@@ -51,5 +54,5 @@ export function useSyncEngine() {
     }
   };
 
-  return { triggerSync };
+  return { triggerSync, syncProgress };
 }

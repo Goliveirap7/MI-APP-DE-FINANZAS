@@ -22,6 +22,8 @@ export class SyncEngine {
   private db: SQLiteDatabase;
   private isSyncing: boolean = false;
   private MAX_INTENTOS = 5;
+  
+  public onProgress?: (progress: number) => void;
 
   constructor(db: SQLiteDatabase) {
     this.db = db;
@@ -31,6 +33,15 @@ export class SyncEngine {
    * Intenta procesar toda la cola. Si ya está corriendo o no hay internet, sale silenciosamente.
    */
   async processQueue() {
+    this.onProgress?.(0.1);
+    await this.pushToCloud();
+    this.onProgress?.(0.5);
+    await this.pullFromCloud();
+    this.onProgress?.(1.0);
+    setTimeout(() => this.onProgress?.(0), 1500);
+  }
+
+  async pushToCloud() {
     if (this.isSyncing) return;
 
     const netState = await NetInfo.fetch();
@@ -77,13 +88,10 @@ export class SyncEngine {
         }
       }
     } catch (error) {
-      console.warn('Error en SyncEngine.processQueue:', error);
+      console.warn('Error en SyncEngine.pushToCloud:', error);
     } finally {
       this.isSyncing = false;
     }
-
-    // 2. Hacer Pull de la nube después del Push
-    await this.pullFromCloud();
   }
 
   /**
@@ -155,7 +163,12 @@ export class SyncEngine {
     ];
 
     try {
-      for (const table of tables) {
+      for (let i = 0; i < tables.length; i++) {
+        const table = tables[i];
+        
+        // Reportar progreso en pullFromCloud (50% a 100%) si es llamado desde processQueue
+        this.onProgress?.(0.5 + ((i / tables.length) * 0.5));
+
         // RLS de Supabase filtra automáticamente los datos del usuario logueado
         const { data, error } = await supabase.from(table).select('*');
         if (error) {
@@ -164,26 +177,28 @@ export class SyncEngine {
         }
 
         if (data && data.length > 0) {
-          await this.db.withTransactionAsync(async () => {
-            for (const row of data) {
-              row.estado_sync = 'sincronizado';
-              
-              const columns = Object.keys(row);
-              const values = Object.values(row) as any[];
-              
-              const placeholders = columns.map(() => '?').join(', ');
-              const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+          for (const row of data) {
+            row.estado_sync = 'sincronizado';
+            
+            const columns = Object.keys(row);
+            const values = Object.values(row) as any[];
+            
+            const placeholders = columns.map(() => '?').join(', ');
+            const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
 
-              const query = `
-                INSERT INTO ${table} (${columns.join(', ')})
-                VALUES (${placeholders})
-                ON CONFLICT(id_local) DO UPDATE SET
-                ${updateSet};
-              `;
+            const query = `
+              INSERT INTO ${table} (${columns.join(', ')})
+              VALUES (${placeholders})
+              ON CONFLICT(id_local) DO UPDATE SET
+              ${updateSet};
+            `;
 
+            try {
               await this.db.runAsync(query, values);
+            } catch (err) {
+              console.warn(`[SyncEngine] Error guardando fila de ${table}:`, err);
             }
-          });
+          }
           console.log(`[SyncEngine] Pull de ${table}: ${data.length} registros guardados.`);
         }
       }

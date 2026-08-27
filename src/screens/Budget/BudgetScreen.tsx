@@ -41,6 +41,10 @@ import Card from '../../components/ui/Card';
 import BudgetInput from '../../components/ui/BudgetInput';
 import CategoryProgressRow from '../../components/ui/CategoryProgressRow';
 
+import { useFocusEffect } from '@react-navigation/native';
+import { SyncEngine } from '../../db/sync/SyncEngine';
+import { showToast } from '../../utils/toast';
+import { useDatabase } from '../../db/database';
 import { usePresupuesto } from '../../hooks/usePresupuesto';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -56,6 +60,7 @@ const EMOJI: Record<string, string> = {
 
 export default function BudgetScreen() {
   const { colors } = useTheme();
+  const db = useDatabase();
   const styles = React.useMemo(() => getStyles(colors), [colors]);
   const [mes, setMes] = useState(mesActualISO());
 
@@ -85,20 +90,17 @@ export default function BudgetScreen() {
 
   const handleGuardar = async () => {
     if (disponible > 0 && !pctCompleto) {
-      Alert.alert(
-        'Cuadre incorrecto',
-        `Has asignado S/ ${totalMonto.toFixed(2)} pero tienes S/ ${disponible.toFixed(2)} disponibles. Por favor ajusta tu presupuesto.`,
-        [{ text: 'OK' }],
-      );
+      showToast(`Has asignado S/ ${totalMonto.toFixed(2)} pero tienes S/ ${disponible.toFixed(2)} disponibles.`);
       return;
     }
     try {
       await guardar();
-      Alert.alert('✅ Guardado', 'El presupuesto del mes fue guardado correctamente.');
+      new SyncEngine(db).pushToCloud();
+      showToast('El presupuesto del mes fue guardado correctamente.');
       refetch();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo guardar.');
-    }
+      showToast('Error: ' + (e?.message ?? 'No se pudo guardar.'));
+    } finally { };
   };
 
   return (

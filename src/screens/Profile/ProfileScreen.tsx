@@ -24,6 +24,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { importShioData } from '../../utils/importShio';
 import { DEFAULT_ESPACIO_ID } from '../../db/seed';
 import { useAvatar, AVATAR_KEYS, AVATAR_IMAGES } from '../../hooks/useAvatar';
+import { showToast } from '../../utils/toast';
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
@@ -47,10 +48,10 @@ export default function ProfileScreen() {
     setLoading(true);
     try {
       await importShioData(db);
-      Alert.alert('Éxito', 'Datos de prueba importados correctamente. Ve al inicio para verlos.');
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Error', 'No se pudieron importar los datos');
+      showToast('Datos de prueba importados correctamente. Ve al inicio para verlos.');
+    } catch (e) {
+      console.error(e);
+      showToast('Error: No se pudieron importar los datos');
     } finally {
       setLoading(false);
     }
@@ -97,7 +98,7 @@ export default function ProfileScreen() {
         const { error: err3 } = await supabase.from('activos_inversion').delete().eq('espacio_id', DEFAULT_ESPACIO_ID);
         
         if (err1 || err2 || err3) {
-           Alert.alert('Error', 'Necesitas conexión a internet para borrar tus datos de la nube.');
+           showToast('Error: Necesitas conexión a internet para borrar tus datos de la nube.');
            setLoading(false);
            return;
         }
@@ -113,7 +114,7 @@ export default function ProfileScreen() {
         const { error: err2 } = await supabase.from('presupuesto_categoria').delete().eq('espacio_id', DEFAULT_ESPACIO_ID).like('mes', `${mesActual}%`);
 
         if (err1 || err2) {
-           Alert.alert('Error', 'Necesitas conexión a internet para borrar tus datos de la nube.');
+           showToast('Error: Necesitas conexión a internet para borrar tus datos de la nube.');
            setLoading(false);
            return;
         }
@@ -121,10 +122,10 @@ export default function ProfileScreen() {
         await db.runAsync(`DELETE FROM transacciones WHERE espacio_id = ? AND fecha LIKE '${mesActual}%'`, [DEFAULT_ESPACIO_ID]);
         await db.runAsync(`DELETE FROM presupuesto_categoria WHERE espacio_id = ? AND mes LIKE '${mesActual}%'`, [DEFAULT_ESPACIO_ID]);
       }
-      Alert.alert('Éxito', 'Los datos han sido borrados de la nube y del dispositivo correctamente.');
+      showToast('Los datos han sido borrados de la nube y del dispositivo correctamente.');
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'No se pudieron borrar los datos.');
+      showToast('Error: No se pudieron borrar los datos.');
     } finally {
       setLoading(false);
     }
@@ -132,7 +133,7 @@ export default function ProfileScreen() {
 
   const handleSave = async () => {
     setLoading(true);
-    let successCount = 0;
+    let hasChanges = false;
 
     // Actualizar Username
     if (username.trim() && username.trim() !== currentUsername) {
@@ -140,38 +141,40 @@ export default function ProfileScreen() {
         data: { username: username.trim() }
       });
       if (error) {
-        Alert.alert('Error actualizando perfil', error.message);
-      } else {
-        successCount++;
+        showToast('Error actualizando perfil: ' + error.message);
+        setLoading(false);
+        return;
       }
+      hasChanges = true;
     }
 
     // Actualizar Contraseña
-    if (password.trim().length > 0) {
-      if (password.length < 6) {
-        Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres.');
+    const newPassword = password.trim();
+    if (newPassword.length > 0) {
+      if (newPassword.length < 6) {
+        showToast('Error: La contraseña debe tener al menos 6 caracteres.');
         setLoading(false);
         return;
       }
       const { error } = await supabase.auth.updateUser({
-        password: password
+        password: newPassword
       });
       if (error) {
-        Alert.alert('Error actualizando contraseña', error.message);
-      } else {
-        successCount++;
-        setPassword(''); // Limpiar contraseña después del cambio
+        showToast('Error actualizando contraseña: ' + error.message);
+        setLoading(false);
+        return;
       }
+      hasChanges = true;
+      setPassword(''); // Limpiar contraseña después del cambio
     }
 
     setLoading(false);
 
-    if (successCount > 0) {
-      Alert.alert('✅ Éxito', 'Tus datos se actualizaron correctamente en la nube.', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+    if (hasChanges) {
+      showToast('Tus datos se actualizaron correctamente en la nube.');
+      navigation.goBack();
     } else {
-      Alert.alert('Sin cambios', 'No se detectaron cambios para guardar.');
+      showToast('No se detectaron cambios para guardar.');
     }
   };
 
@@ -182,7 +185,7 @@ export default function ProfileScreen() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
-          <Text style={{ color: colors.primary, fontSize: FontSize.md }}>← Volver</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mi Perfil</Text>
         <View style={{ width: 60 }} />

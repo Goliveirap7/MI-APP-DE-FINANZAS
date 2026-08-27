@@ -67,7 +67,7 @@ export default function TransactionDetailScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
-            <Text style={{ color: colors.primary, fontSize: FontSize.md }}>← Volver</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
           </TouchableOpacity>
         </View>
         <View style={styles.center}>
@@ -85,7 +85,7 @@ export default function TransactionDetailScreen() {
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
-          <Text style={{ color: colors.primary, fontSize: FontSize.md }}>← Volver</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detalle</Text>
         <TouchableOpacity 
