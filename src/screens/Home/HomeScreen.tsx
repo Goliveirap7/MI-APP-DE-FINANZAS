@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { showToast } from '../../utils/toast';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
@@ -221,7 +222,7 @@ export default function HomeScreen() {
   const diferenciaPositiva = (resumen?.diferencia ?? 0) >= 0;
 
   // Lógica de Pánico / Zen para el fondo principal
-  const heroColors = React.useMemo(() => {
+  const heroColors = React.useMemo<readonly [string, string, ...string[]]>(() => {
     if (porcentajeGastado >= 0.85) {
       // Modo Pánico
       return isDark ? ['#5a1818', '#3a0c0c'] : ['#ff5252', '#c62828'];
@@ -376,7 +377,7 @@ export default function HomeScreen() {
               onPress={() => navigation.navigate('BalanceDetail')}
             >
               <LinearGradient
-                colors={isDark ? ['#0d3d2e', '#112240'] : [colors.primary, '#00a87a']}
+                colors={heroColors}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.heroCard}
@@ -542,21 +543,33 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── STREAK FAB ───────────────────────────── */}
-        {streak > 1 && (
-          <TouchableOpacity style={styles.streakFab} activeOpacity={0.85} onPress={() => navigation.navigate('Streak')}>
-            <LinearGradient
-              colors={['#ff9800', '#f57c00']}
-              style={styles.fabGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={styles.streakFabText}>🔥 {streak}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity 
+          style={styles.streakFab} 
+          activeOpacity={0.85} 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            navigation.navigate('Streak');
+          }}
+        >
+          <LinearGradient
+            colors={['#ff9800', '#f57c00']}
+            style={styles.fabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Text style={styles.streakFabText}>🔥 {streak}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* ── FAB ───────────────────────────────────── */}
-        <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => navigation.navigate('AddTransaction')}>
+        <TouchableOpacity 
+          style={styles.fab} 
+          activeOpacity={0.85} 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            navigation.navigate('AddTransaction');
+          }}
+        >
           <LinearGradient
             colors={[colors.primary, '#00a87a']}
             style={styles.fabGradient}
