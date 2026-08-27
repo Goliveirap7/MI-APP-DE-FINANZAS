@@ -9,12 +9,13 @@ import { supabase } from '../../lib/supabase';
 import NetInfo from '@react-native-community/netinfo';
 
 interface SyncQueueItem {
-  id: number;
+  id: string;
   tabla: string;
-  operacion: 'insert' | 'update' | 'delete';
-  id_registro: string;
-  fecha_encolado: string;
+  id_local: string;
+  tipo_operacion: 'crear' | 'editar' | 'eliminar';
+  datos: string;
   intentos: number;
+  creado_en: string;
 }
 
 export class SyncEngine {
@@ -40,6 +41,9 @@ export class SyncEngine {
     this.isSyncing = true;
 
     try {
+      // 0. Sincronizar datos semilla pendientes (espacios, categorías) para evitar errores de Foreign Key
+      await this.syncPendingSeeds();
+
       // 1. Obtener cola pendiente
       const cola = await this.db.getAllAsync<SyncQueueItem>(
         `SELECT * FROM sync_queue ORDER BY id ASC LIMIT 50`
@@ -58,10 +62,10 @@ export class SyncEngine {
           await this.db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
           
           // Actualizar estado en tabla original (solo insert/update)
-          if (item.operacion !== 'delete') {
+          if (item.tipo_operacion !== 'eliminar') {
             await this.db.runAsync(
               `UPDATE ${item.tabla} SET estado_sync = 'sincronizado' WHERE id_local = ?`,
-              [item.id_registro]
+              [item.id_local]
             );
           }
         } else {
@@ -77,6 +81,116 @@ export class SyncEngine {
     } finally {
       this.isSyncing = false;
     }
+
+    // 2. Hacer Pull de la nube después del Push
+    await this.pullFromCloud();
+  }
+
+  /**
+   * Sube los datos semilla (espacios, categorías) que se crearon localmente pero nunca pasaron por sync_queue.
+   * Esto previene errores de "violates foreign key constraint".
+   */
+  private async syncPendingSeeds() {
+    const seedTables = [
+      'espacios', 
+      'categorias_ingreso', 
+      'categorias_egreso', 
+      'conceptos_detalle',
+      'presupuesto_categoria',
+      'activos_inversion',
+      'transacciones'
+    ];
+    
+    for (const table of seedTables) {
+      try {
+        const pendingRows = await this.db.getAllAsync<any>(
+          `SELECT * FROM ${table} WHERE estado_sync = 'pendiente'`
+        );
+        
+        if (pendingRows && pendingRows.length > 0) {
+          console.log(`[SyncEngine] Subiendo ${pendingRows.length} registros semilla pendientes de ${table}...`);
+          for (const row of pendingRows) {
+            const payload = { ...row };
+            delete payload.estado_sync;
+            
+            const { error } = await supabase.from(table).upsert(payload, { onConflict: 'id_local' });
+            if (!error) {
+              await this.db.runAsync(
+                `UPDATE ${table} SET estado_sync = 'sincronizado' WHERE id_local = ?`,
+                [row.id_local]
+              );
+            } else {
+              console.warn(`[SyncEngine] Error subiendo semilla de ${table}:`, error.message);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[SyncEngine] Error en syncPendingSeeds para ${table}:`, e);
+      }
+    }
+  }
+
+  /**
+   * Descarga todos los datos desde Supabase (Pull)
+   * Útil para cuando el usuario instala el APK por primera vez o cambia de celular.
+   */
+  async pullFromCloud() {
+    console.log('[SyncEngine] Iniciando Pull desde Supabase...');
+    const netState = await NetInfo.fetch();
+    if (!netState.isConnected || !netState.isInternetReachable) {
+      console.log('[SyncEngine] No hay internet para hacer Pull.');
+      return;
+    }
+
+    // Tablas a descargar en orden (respetando Foreign Keys)
+    const tables = [
+      'espacios',
+      'categorias_ingreso',
+      'categorias_egreso',
+      'conceptos_detalle',
+      'presupuesto_categoria',
+      'transacciones',
+      'deudas',
+      'activos_inversion'
+    ];
+
+    try {
+      for (const table of tables) {
+        // RLS de Supabase filtra automáticamente los datos del usuario logueado
+        const { data, error } = await supabase.from(table).select('*');
+        if (error) {
+          console.warn(`[SyncEngine] Error haciendo pull de ${table}:`, error.message);
+          continue;
+        }
+
+        if (data && data.length > 0) {
+          await this.db.withTransactionAsync(async () => {
+            for (const row of data) {
+              row.estado_sync = 'sincronizado';
+              
+              const columns = Object.keys(row);
+              const values = Object.values(row) as any[];
+              
+              const placeholders = columns.map(() => '?').join(', ');
+              const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
+              const query = `
+                INSERT INTO ${table} (${columns.join(', ')})
+                VALUES (${placeholders})
+                ON CONFLICT(id_local) DO UPDATE SET
+                ${updateSet};
+              `;
+
+              await this.db.runAsync(query, values);
+            }
+          });
+          console.log(`[SyncEngine] Pull de ${table}: ${data.length} registros guardados.`);
+        }
+      }
+      console.log('[SyncEngine] Pull completado con éxito.');
+    } catch (e) {
+      console.error('[SyncEngine] Error general en pullFromCloud:', e);
+    }
   }
 
   /**
@@ -85,12 +199,12 @@ export class SyncEngine {
    */
   private async syncItem(item: SyncQueueItem): Promise<boolean> {
     try {
-      if (item.operacion === 'delete') {
+      if (item.tipo_operacion === 'eliminar') {
         // Ejecutar delete en Supabase
         const { error } = await supabase
           .from(item.tabla)
           .delete()
-          .eq('id_local', item.id_registro);
+          .eq('id_local', item.id_local);
 
         if (error) throw error;
         return true;
@@ -99,7 +213,7 @@ export class SyncEngine {
       // Para insert/update necesitamos los datos completos locales
       const localData = await this.db.getFirstAsync<any>(
         `SELECT * FROM ${item.tabla} WHERE id_local = ?`,
-        [item.id_registro]
+        [item.id_local]
       );
 
       if (!localData) {
@@ -117,7 +231,7 @@ export class SyncEngine {
         .upsert(payload, { onConflict: 'id_local' });
 
       if (error) {
-        console.warn(`Error sincronizando ${item.tabla} (${item.id_registro}):`, error.message);
+        console.warn(`Error sincronizando ${item.tabla} (${item.id_local}):`, error.message);
         return false;
       }
 
@@ -134,15 +248,15 @@ export class SyncEngine {
   private async markAsConflict(item: SyncQueueItem) {
     try {
       await this.db.withTransactionAsync(async () => {
-        if (item.operacion !== 'delete') {
+        if (item.tipo_operacion !== 'eliminar') {
           await this.db.runAsync(
             `UPDATE ${item.tabla} SET estado_sync = 'conflicto' WHERE id_local = ?`,
-            [item.id_registro]
+            [item.id_local]
           );
         }
         await this.db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
       });
-      console.log(`[SyncEngine] Conflicto marcado para ${item.tabla} - ${item.id_registro}`);
+      console.log(`[SyncEngine] Conflicto marcado para ${item.tabla} - ${item.id_local}`);
     } catch (e) {
       console.error('Error marcando conflicto:', e);
     }

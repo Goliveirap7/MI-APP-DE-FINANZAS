@@ -91,17 +91,40 @@ export default function ProfileScreen() {
     setLoading(true);
     try {
       if (tipo === 'todo') {
+        // Borrar en la nube primero
+        const { error: err1 } = await supabase.from('transacciones').delete().eq('espacio_id', DEFAULT_ESPACIO_ID);
+        const { error: err2 } = await supabase.from('presupuesto_categoria').delete().eq('espacio_id', DEFAULT_ESPACIO_ID);
+        const { error: err3 } = await supabase.from('activos_inversion').delete().eq('espacio_id', DEFAULT_ESPACIO_ID);
+        
+        if (err1 || err2 || err3) {
+           Alert.alert('Error', 'Necesitas conexión a internet para borrar tus datos de la nube.');
+           setLoading(false);
+           return;
+        }
+
         await db.runAsync('DELETE FROM transacciones WHERE espacio_id = ?', [DEFAULT_ESPACIO_ID]);
         await db.runAsync('DELETE FROM presupuesto_categoria WHERE espacio_id = ?', [DEFAULT_ESPACIO_ID]);
+        await db.runAsync('DELETE FROM activos_inversion WHERE espacio_id = ?', [DEFAULT_ESPACIO_ID]);
       } else {
         const mesActual = new Date().toISOString().substring(0, 7); // YYYY-MM
+        
+        // Borrar en la nube
+        const { error: err1 } = await supabase.from('transacciones').delete().eq('espacio_id', DEFAULT_ESPACIO_ID).like('fecha', `${mesActual}%`);
+        const { error: err2 } = await supabase.from('presupuesto_categoria').delete().eq('espacio_id', DEFAULT_ESPACIO_ID).like('mes', `${mesActual}%`);
+
+        if (err1 || err2) {
+           Alert.alert('Error', 'Necesitas conexión a internet para borrar tus datos de la nube.');
+           setLoading(false);
+           return;
+        }
+
         await db.runAsync(`DELETE FROM transacciones WHERE espacio_id = ? AND fecha LIKE '${mesActual}%'`, [DEFAULT_ESPACIO_ID]);
         await db.runAsync(`DELETE FROM presupuesto_categoria WHERE espacio_id = ? AND mes LIKE '${mesActual}%'`, [DEFAULT_ESPACIO_ID]);
       }
-      Alert.alert('Éxito', 'Los datos han sido borrados correctamente.');
+      Alert.alert('Éxito', 'Los datos han sido borrados de la nube y del dispositivo correctamente.');
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'No se pudieron borrar los datos');
+      Alert.alert('Error', 'No se pudieron borrar los datos.');
     } finally {
       setLoading(false);
     }

@@ -34,6 +34,7 @@ import { useCategorias } from '../../hooks/useCategorias';
 import { useAuth } from '../../context/AuthContext';
 import { useAvatar, AVATAR_IMAGES } from '../../hooks/useAvatar';
 import { useStreak } from '../../hooks/useStreak';
+import { useSyncEngine } from '../../hooks/useSyncEngine';
 
 // Emojis por nombre de categoría
 const EMOJI_MAP: Record<string, string> = {
@@ -98,6 +99,8 @@ export default function HomeScreen() {
   const { colors, toggleTheme, isDark } = useTheme();
   const { avatar } = useAvatar();
   const { streak } = useStreak();
+  const { triggerSync } = useSyncEngine();
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
 
   const styles = React.useMemo(() => getStyles(colors), [colors]);
 
@@ -206,9 +209,21 @@ export default function HomeScreen() {
                   <Text style={styles.menuItemIcon}>{isDark ? '☀️' : '🌙'}</Text>
                   <Text style={styles.menuItemText}>{isDark ? 'Modo Diurno' : 'Modo Nocturno'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
+                <TouchableOpacity style={styles.menuItem} onPress={async () => {
+                  setShowMenu(false);
+                  setIsManualSyncing(true);
+                  try {
+                    await triggerSync();
+                    refetch();
+                    Alert.alert('Éxito', 'Sincronización completada.');
+                  } catch (e) {
+                    Alert.alert('Error', 'No se pudo sincronizar.');
+                  } finally {
+                    setIsManualSyncing(false);
+                  }
+                }}>
                   <Text style={styles.menuItemIcon}>☁️</Text>
-                  <Text style={styles.menuItemText}>Sincronizar</Text>
+                  <Text style={styles.menuItemText}>{isManualSyncing ? 'Sincronizando...' : 'Sincronizar'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.menuItem} onPress={() => setShowMenu(false)}>
                   <Text style={styles.menuItemIcon}>📊</Text>
