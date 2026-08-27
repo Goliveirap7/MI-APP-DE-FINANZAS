@@ -92,6 +92,7 @@ import CategoryDetailScreen from '../screens/CategoryDetail/CategoryDetailScreen
 import TransactionDetailScreen from '../screens/TransactionDetail/TransactionDetailScreen';
 import ProfileScreen from '../screens/Profile/ProfileScreen';
 import BalanceDetailScreen from '../screens/BalanceDetail/BalanceDetailScreen';
+import StreakScreen from '../screens/Streak/StreakScreen';
 import { useTheme } from '../context/ThemeContext';
 
 export default function RootNavigator() {
@@ -113,6 +114,7 @@ export default function RootNavigator() {
             <Stack.Screen name="BalanceDetail" component={BalanceDetailScreen} />
             <Stack.Screen name="Debts" component={DebtsScreen} />
             <Stack.Screen name="Investments" component={InvestmentsScreen} />
+            <Stack.Screen name="Streak" component={StreakScreen} />
           </>
         ) : (
           <Stack.Screen name="Auth" component={AuthScreen} />

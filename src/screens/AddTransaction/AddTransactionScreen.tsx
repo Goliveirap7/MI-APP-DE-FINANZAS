@@ -16,6 +16,7 @@ import {
   StatusBar,
   Animated,
   ActivityIndicator,
+  ToastAndroid,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -193,20 +194,26 @@ export default function AddTransactionScreen() {
       const netState = await NetInfo.fetch();
       const message = `${tipo === 'ingreso' ? 'Ingreso' : 'Gasto'} de ${formatCurrency(montoNum)} ${isEditing ? 'actualizado' : 'registrado'}.`;
 
-      if (netState.isConnected) {
-        Alert.alert('✅ Éxito', message, [{ text: 'OK', onPress: () => {
-          if (isEditing) navigation.goBack(); else resetForm();
-        } }]);
+      if (Platform.OS === 'android') {
+        ToastAndroid.show(message, ToastAndroid.SHORT);
       } else {
-        Alert.alert('✅ Éxito', message, [{
-          text: 'OK',
-          onPress: () => {
-            if (isEditing) navigation.goBack(); else resetForm();
-            setTimeout(() => {
-              Alert.alert('Modo sin conexión', 'Se sincronizará cuando haya conexión.');
-            }, 1000);
+        Alert.alert('✅ Éxito', message);
+      }
+
+      if (isEditing) {
+        navigation.goBack();
+      } else {
+        resetForm();
+      }
+
+      if (!netState.isConnected) {
+        setTimeout(() => {
+          if (Platform.OS === 'android') {
+            ToastAndroid.show('Se sincronizará cuando haya conexión.', ToastAndroid.LONG);
+          } else {
+            Alert.alert('Modo sin conexión', 'Se sincronizará cuando haya conexión.');
           }
-        }]);
+        }, 1000);
       }
 
     } catch (e: any) {

@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   StatusBar,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../lib/supabase';
@@ -90,8 +91,12 @@ export default function AuthScreen() {
         <View style={styles.content}>
           
           <View style={styles.header}>
-            <Text style={styles.emoji}>💰</Text>
-            <Text style={styles.title}>FinanceApp</Text>
+            <Image 
+              source={require('../../../assets/logo.png')} 
+              style={{ width: 80, height: 80, marginBottom: Spacing.sm }} 
+              resizeMode="contain" 
+            />
+            <Text style={styles.title}>MIS FINANZAS</Text>
             <Text style={styles.subtitle}>Tu presupuesto inteligente</Text>
           </View>
 
@@ -139,7 +144,11 @@ export default function AuthScreen() {
                   onPress={() => setShowPassword(!showPassword)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
+                  <Image 
+                    source={showPassword ? require('../../../assets/no view.png') : require('../../../assets/view.png')} 
+                    style={{ width: 24, height: 24, tintColor: colors.textPrimary }}
+                    resizeMode="contain"
+                  />
                 </TouchableOpacity>
               </View>
             </View>
