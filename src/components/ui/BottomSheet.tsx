@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   visible:    boolean;
@@ -26,6 +27,7 @@ interface Props {
 
 export default function BottomSheet({ visible, onClose, title, children }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = React.useMemo(() => getStyles(colors), [colors]);
   const slideAnim = useRef(new Animated.Value(500)).current;
 
@@ -66,7 +68,13 @@ export default function BottomSheet({ visible, onClose, title, children }: Props
         pointerEvents="box-none"
       >
         <Animated.View
-          style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}
+          style={[
+            styles.sheet,
+            {
+              transform: [{ translateY: slideAnim }],
+              paddingBottom: Math.max(insets.bottom + 16, Platform.OS === 'ios' ? 32 : 24),
+            },
+          ]}
         >
           {/* Handle */}
           <View style={styles.handle} />

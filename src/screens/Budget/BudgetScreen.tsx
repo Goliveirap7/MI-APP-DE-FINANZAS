@@ -25,12 +25,12 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
   Platform,
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';

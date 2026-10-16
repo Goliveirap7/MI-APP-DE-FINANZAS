@@ -24,6 +24,8 @@ import { useAuth }          from '../context/AuthContext';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useSyncEngine }    from '../hooks/useSyncEngine';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
@@ -36,6 +38,8 @@ const TAB_ICONS: Record<string, string> = {
 function MainTabs() {
   useSyncEngine(); // Inicia el motor de sincronización al cargar los tabs principales
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 0);
 
   return (
     <Tab.Navigator
@@ -73,9 +77,9 @@ function MainTabs() {
           backgroundColor: colors.bgCard,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 62,
-          paddingBottom: 6,
-          paddingTop: 6,
+          height: 60 + bottomInset,
+          paddingBottom: Math.max(bottomInset, 8),
+          paddingTop: 8,
         },
         tabBarActiveTintColor:   colors.primary,
         tabBarInactiveTintColor: colors.textMuted,

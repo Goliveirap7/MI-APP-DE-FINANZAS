@@ -4,10 +4,10 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';

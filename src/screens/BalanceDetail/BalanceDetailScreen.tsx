@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -13,6 +12,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';

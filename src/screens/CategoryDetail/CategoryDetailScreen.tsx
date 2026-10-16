@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Platform,
   SectionList,
@@ -15,6 +14,7 @@ import {
   Vibration,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';
