@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Switch,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,10 +22,12 @@ import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../c
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
-import { importShioData } from '../../utils/importShio';
+import { pickAndImportCSV } from '../../utils/csvImport';
 import { DEFAULT_ESPACIO_ID } from '../../db/seed';
 import { useAvatar, AVATAR_KEYS, AVATAR_IMAGES } from '../../hooks/useAvatar';
 import { showToast } from '../../utils/toast';
+import { triggerSoftTap } from '../../utils/haptics';
+import { useSecurity } from '../../context/SecurityContext';
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
@@ -33,6 +36,7 @@ export default function ProfileScreen() {
   const { user } = useAuth();
   const db = useDatabase();
   const { avatar, saveAvatar } = useAvatar();
+  const { isBiometricEnabled, toggleBiometric } = useSecurity();
   
   // Extraemos el username actual
   const currentUsername = user?.user_metadata?.username || '';
@@ -44,14 +48,18 @@ export default function ProfileScreen() {
   
   const displayAvatar = avatar || currentUsername.charAt(0)?.toUpperCase() || 'U';
 
-  const handleImportShio = async () => {
+  const handleImportCSV = async () => {
     setLoading(true);
     try {
-      await importShioData(db);
-      showToast('Datos de prueba importados correctamente. Ve al inicio para verlos.');
+      const result = await pickAndImportCSV(db);
+      if (result.success) {
+        showToast(result.message);
+      } else {
+        showToast(`Aviso: ${result.message}`);
+      }
     } catch (e) {
       console.error(e);
-      showToast('Error: No se pudieron importar los datos');
+      showToast('Error inesperado al importar CSV');
     } finally {
       setLoading(false);
     }
@@ -184,7 +192,7 @@ export default function ProfileScreen() {
       
       {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+        <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={{ padding: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mi Perfil</Text>
@@ -204,7 +212,7 @@ export default function ProfileScreen() {
                   styles.avatarOption,
                   avatar === key && styles.avatarOptionSelected
                 ]}
-                onPress={() => saveAvatar(key)}
+                onPress={() => { triggerSoftTap(); saveAvatar(key); }}
                 activeOpacity={0.7}
               >
                 <Image source={AVATAR_IMAGES[key]} style={styles.avatarImage} resizeMode="contain" />
@@ -250,11 +258,30 @@ export default function ProfileScreen() {
               <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
             </TouchableOpacity>
           </View>
+          
+          {/* SECCIÓN SEGURIDAD */}
+          <Text style={[styles.label, { marginTop: Spacing.xl }]}>Seguridad</Text>
+          <View style={styles.securityRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.securityTitle}>Bloqueo Biométrico</Text>
+              <Text style={styles.securitySub}>Pedir huella 1 vez al día para entrar</Text>
+            </View>
+            <Switch
+              value={isBiometricEnabled}
+              onValueChange={async (val) => {
+                const success = await toggleBiometric(val);
+                if (success) triggerSoftTap();
+                else showToast(val ? 'No se pudo activar la seguridad' : 'Cancelado');
+              }}
+              trackColor={{ false: colors.bgInput, true: colors.primary }}
+              thumbColor={isBiometricEnabled ? '#fff' : '#ccc'}
+            />
+          </View>
 
         </View>
 
         <TouchableOpacity
-          onPress={handleSave}
+          onPress={() => { triggerSoftTap(); handleSave(); }}
           disabled={loading}
           activeOpacity={0.85}
           style={styles.saveWrapper}
@@ -273,27 +300,29 @@ export default function ProfileScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
-        {user?.email === 'shio.gd20@gmail.com' && (
-          <TouchableOpacity
-            onPress={handleImportShio}
-            disabled={loading}
-            activeOpacity={0.85}
-            style={[styles.saveWrapper, { marginTop: 10, shadowColor: '#4f46e5' }]}
+        <TouchableOpacity
+          onPress={() => { triggerSoftTap(); handleImportCSV(); }}
+          disabled={loading}
+          activeOpacity={0.85}
+          style={[styles.saveWrapper, { marginTop: 10, shadowColor: '#4f46e5' }]}
+        >
+          <LinearGradient
+            colors={['#4f46e5', '#3730a3']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.saveBtn}
           >
-            <LinearGradient
-              colors={['#4f46e5', '#3730a3']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.saveBtn}
-            >
-              <Text style={styles.saveBtnText}>Importar Datos (Shio) 🚀</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>📥 Importar Excel / CSV</Text>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Botón para resetear datos */}
         <TouchableOpacity
-          onPress={handleResetData}
+          onPress={() => { triggerSoftTap(); handleResetData(); }}
           disabled={loading}
           activeOpacity={0.85}
           style={[styles.saveWrapper, { marginTop: 10, shadowColor: colors.expense }]}
@@ -334,10 +363,12 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
 
   passwordContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.border, borderRadius: Radius.md },
   passwordInput: { flex: 1, color: colors.textPrimary, fontSize: FontSize.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md },
-  eyeBtn: { padding: Spacing.md, justifyContent: 'center', alignItems: 'center' },
-  eyeIcon: { fontSize: 18 },
-
-  saveWrapper: { borderRadius: Radius.full, overflow: 'hidden', shadowColor: colors.income, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
+  eyeBtn: { padding: Spacing.md },
+  eyeIcon: { fontSize: FontSize.md },
+  securityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bgInput, padding: Spacing.md, borderRadius: Radius.md, marginTop: Spacing.xs },
+  securityTitle: { color: colors.textPrimary, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+  securitySub: { color: colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
+  saveWrapper: { marginTop: Spacing.xl, borderRadius: Radius.full, shadowColor: '#00C896', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
   saveBtn: { paddingVertical: Spacing.md + 2, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: FontWeight.bold, letterSpacing: 0.3 },
 });

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -17,6 +18,7 @@ import { useDatabase } from '../../db/database';
 import { getTransaccionById, TransaccionLocal } from '../../db/repositories/transacciones';
 import { formatCurrency } from '../../utils/format';
 import { useTheme } from '../../context/ThemeContext';
+import { useWalletConfig } from '../../hooks/useWalletConfig';
 
 function formatDateLabel(iso: string): string {
   if (!iso) return '';
@@ -31,6 +33,7 @@ export default function TransactionDetailScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const db = useDatabase();
+  const { getWalletLabel } = useWalletConfig();
   const { transaccionId } = route.params;
 
   const [tx, setTx] = useState<TransaccionLocal | null>(null);
@@ -66,7 +69,7 @@ export default function TransactionDetailScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+          <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={{ padding: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
           </TouchableOpacity>
         </View>
@@ -84,7 +87,7 @@ export default function TransactionDetailScreen() {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+        <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={{ padding: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detalle</Text>
@@ -111,6 +114,14 @@ export default function TransactionDetailScreen() {
           <Text style={styles.cardTitle}>Nota o Concepto</Text>
           <Text style={styles.noteText}>
             {tx.nota ? tx.nota : 'Sin detalles adicionales.'}
+          </Text>
+        </View>
+
+        {/* Cuenta / Billetera */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Cuenta / Billetera</Text>
+          <Text style={styles.noteText}>
+            {getWalletLabel(tx.billetera)} ({tx.metodo_pago === 'efectivo' ? 'Efectivo 💵' : 'Virtual 💳'})
           </Text>
         </View>
 

@@ -13,7 +13,8 @@
  *  └───────────────────────────────────────┘
  *  FAB ＋ → BottomSheet para agregar activo
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -117,7 +118,7 @@ export default function InvestmentsScreen() {
           <TouchableOpacity 
             style={styles.backBtn} 
             activeOpacity={0.7} 
-            onPress={() => navigation.goBack()}
+            onPress={() => { triggerSoftTap(); navigation.goBack(); }}
           >
             <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>

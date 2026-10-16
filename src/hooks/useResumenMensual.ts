@@ -27,6 +27,7 @@ export interface Patrimonio {
   disponible: number;
   disponible_virtual: number;
   disponible_efectivo: number;
+  billeteras_detalle: Record<string, number>;
   me_deben:   number;
   debo:       number;
   invertido:  number;
@@ -79,7 +80,13 @@ export function useResumenMensual(
       // Patrimonio
       const { me_deben, debo } = await getTotalesDeuda(db, espacioId);
       const invertido = await getTotalInvertido(db, espacioId);
-      const { virtual, efectivo } = await getTotalesBilletera(db, espacioId);
+      const billeterasDetalle = await getTotalesBilletera(db, espacioId);
+
+      const efectivo = billeterasDetalle['Efectivo'] || 0;
+      const virtual = (billeterasDetalle['Alfin'] || 0) + 
+                      (billeterasDetalle['Interbank'] || 0) + 
+                      (billeterasDetalle['Yape'] || 0) + 
+                      (billeterasDetalle['Agora'] || 0);
 
       // El disponible total se puede tomar del cálculo mensual para consistencia del mes,
       // o del cálculo histórico (virtual + efectivo). Usaremos el histórico para las subcuentas
@@ -90,6 +97,7 @@ export function useResumenMensual(
         disponible: efectivoDisponible,
         disponible_virtual: virtual,
         disponible_efectivo: efectivo,
+        billeteras_detalle: billeterasDetalle,
         me_deben,
         debo,
         invertido,

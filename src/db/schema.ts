@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS transacciones (
   creado_por            TEXT,
   nota                  TEXT,
   foto_uri              TEXT,
+  billetera             TEXT NOT NULL,
   metodo_pago           TEXT NOT NULL DEFAULT 'virtual',
   estado_sync           TEXT NOT NULL DEFAULT 'pendiente',
   fecha_modificacion    TEXT NOT NULL,

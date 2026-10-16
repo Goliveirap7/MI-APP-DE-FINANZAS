@@ -7,6 +7,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { supabase } from '../../lib/supabase';
 import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface SyncQueueItem {
   id: string;
@@ -29,6 +30,27 @@ export class SyncEngine {
     this.db = db;
   }
 
+  private async getUserId(): Promise<string | null> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData?.session?.user?.id) {
+        return sessionData.session.user.id;
+      }
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user?.id) {
+        return authData.user.id;
+      }
+      const stored = await AsyncStorage.getItem('@app_persisted_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.user?.id) return parsed.user.id;
+      }
+    } catch (e) {
+      // Ignorar error al resolver usuario
+    }
+    return null;
+  }
+
   /**
    * Intenta procesar toda la cola. Si ya está corriendo o no hay internet, sale silenciosamente.
    */
@@ -45,15 +67,18 @@ export class SyncEngine {
     if (this.isSyncing) return;
 
     const netState = await NetInfo.fetch();
-    if (!netState.isConnected || !netState.isInternetReachable) {
+    const isOnline = !!netState.isConnected && netState.isInternetReachable !== false;
+    if (!isOnline) {
       return; // No hay internet
     }
 
     this.isSyncing = true;
 
     try {
-      // 0. Sincronizar datos semilla pendientes (espacios, categorías) para evitar errores de Foreign Key
-      await this.syncPendingSeeds();
+      const userId = await this.getUserId();
+
+      // 0. Sincronizar datos semilla pendientes (espacios, categorías, deudas) para evitar errores de Foreign Key
+      await this.syncPendingSeeds(userId);
 
       // 1. Obtener cola pendiente
       const cola = await this.db.getAllAsync<SyncQueueItem>(
@@ -66,7 +91,7 @@ export class SyncEngine {
           continue;
         }
 
-        const success = await this.syncItem(item);
+        const success = await this.syncItem(item, userId);
 
         if (success) {
           // Limpiar de la cola
@@ -98,7 +123,7 @@ export class SyncEngine {
    * Sube los datos semilla (espacios, categorías) que se crearon localmente pero nunca pasaron por sync_queue.
    * Esto previene errores de "violates foreign key constraint".
    */
-  private async syncPendingSeeds() {
+  private async syncPendingSeeds(passedUserId?: string | null) {
     const seedTables = [
       'espacios', 
       'categorias_ingreso', 
@@ -106,8 +131,11 @@ export class SyncEngine {
       'conceptos_detalle',
       'presupuesto_categoria',
       'activos_inversion',
-      'transacciones'
+      'transacciones',
+      'deudas'
     ];
+
+    const userId = passedUserId || (await this.getUserId());
     
     for (const table of seedTables) {
       try {
@@ -119,6 +147,10 @@ export class SyncEngine {
           console.log(`[SyncEngine] Subiendo ${pendingRows.length} registros semilla pendientes de ${table}...`);
           for (const row of pendingRows) {
             const payload = { ...row };
+            delete payload.estado_sync;
+            if (userId) {
+              payload.user_id = userId;
+            }
             delete payload.estado_sync;
             
             const { error } = await supabase.from(table).upsert(payload, { onConflict: 'id_local' });
@@ -145,7 +177,8 @@ export class SyncEngine {
   async pullFromCloud() {
     console.log('[SyncEngine] Iniciando Pull desde Supabase...');
     const netState = await NetInfo.fetch();
-    if (!netState.isConnected || !netState.isInternetReachable) {
+    const isOnline = !!netState.isConnected && netState.isInternetReachable !== false;
+    if (!isOnline) {
       console.log('[SyncEngine] No hay internet para hacer Pull.');
       return;
     }
@@ -169,37 +202,71 @@ export class SyncEngine {
         // Reportar progreso en pullFromCloud (50% a 100%) si es llamado desde processQueue
         this.onProgress?.(0.5 + ((i / tables.length) * 0.5));
 
-        // RLS de Supabase filtra automáticamente los datos del usuario logueado
-        const { data, error } = await supabase.from(table).select('*');
-        if (error) {
-          console.warn(`[SyncEngine] Error haciendo pull de ${table}:`, error.message);
-          continue;
+        // Descargar todos los registros paginando en bloques de 1000 (Supabase limita por defecto a 1000 por query)
+        const PAGE_SIZE = 1000;
+        let from = 0;
+        let allData: any[] = [];
+        let hasMore = true;
+
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .range(from, from + PAGE_SIZE - 1);
+
+          if (error) {
+            console.warn(`[SyncEngine] Error haciendo pull de ${table} (offset ${from}):`, error.message);
+            break;
+          }
+
+          if (data && data.length > 0) {
+            allData = allData.concat(data);
+            if (data.length < PAGE_SIZE) {
+              hasMore = false;
+            } else {
+              from += PAGE_SIZE;
+            }
+          } else {
+            hasMore = false;
+          }
         }
 
-        if (data && data.length > 0) {
-          for (const row of data) {
-            row.estado_sync = 'sincronizado';
-            
-            const columns = Object.keys(row);
-            const values = Object.values(row) as any[];
-            
-            const placeholders = columns.map(() => '?').join(', ');
-            const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+        if (allData.length > 0) {
+          // Obtener columnas válidas de la tabla en SQLite para no fallar si Supabase tiene columnas extras
+          const tableInfo = await this.db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+          const validColumns = new Set(tableInfo.map(c => c.name));
 
-            const query = `
-              INSERT INTO ${table} (${columns.join(', ')})
-              VALUES (${placeholders})
-              ON CONFLICT(id_local) DO UPDATE SET
-              ${updateSet};
-            `;
+          await this.db.withTransactionAsync(async () => {
+            for (const row of allData) {
+              const sanitizedRow: Record<string, any> = {};
+              for (const [key, val] of Object.entries(row)) {
+                if (key !== 'user_id' && validColumns.has(key)) {
+                  sanitizedRow[key] = val;
+                }
+              }
+              sanitizedRow.estado_sync = 'sincronizado';
 
-            try {
-              await this.db.runAsync(query, values);
-            } catch (err) {
-              console.warn(`[SyncEngine] Error guardando fila de ${table}:`, err);
+              const columns = Object.keys(sanitizedRow);
+              const values = Object.values(sanitizedRow);
+              
+              const placeholders = columns.map(() => '?').join(', ');
+              const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
+              const query = `
+                INSERT INTO ${table} (${columns.join(', ')})
+                VALUES (${placeholders})
+                ON CONFLICT(id_local) DO UPDATE SET
+                ${updateSet};
+              `;
+
+              try {
+                await this.db.runAsync(query, values);
+              } catch (err) {
+                console.warn(`[SyncEngine] Error guardando fila de ${table}:`, err);
+              }
             }
-          }
-          console.log(`[SyncEngine] Pull de ${table}: ${data.length} registros guardados.`);
+          });
+          console.log(`[SyncEngine] Pull de ${table}: ${allData.length} registros guardados.`);
         }
       }
       console.log('[SyncEngine] Pull completado con éxito.');
@@ -212,10 +279,9 @@ export class SyncEngine {
    * Procesa un ítem individual contra Supabase.
    * @returns true si tuvo éxito, false si falló y debe reintentarse.
    */
-  private async syncItem(item: SyncQueueItem): Promise<boolean> {
+  private async syncItem(item: SyncQueueItem, passedUserId?: string | null): Promise<boolean> {
     try {
       if (item.tipo_operacion === 'eliminar') {
-        // Ejecutar delete en Supabase
         const { error } = await supabase
           .from(item.tabla)
           .delete()
@@ -232,13 +298,17 @@ export class SyncEngine {
       );
 
       if (!localData) {
-        // Si el registro local ya no existe, damos por terminada esta sync.
         return true; 
       }
 
       // Limpiar campos que no deben ir a la nube o son exclusivos de SQLite
       const payload = { ...localData };
       delete payload.estado_sync;
+      
+      const userId = passedUserId || (await this.getUserId());
+      if (userId) {
+        payload.user_id = userId;
+      }
       
       // Enviar a Supabase con Upsert (funciona para insert y update basado en PK id_local)
       const { error } = await supabase

@@ -18,11 +18,12 @@ import {
   Image,
   Animated,
   Easing,
+  Vibration,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { showToast } from '../../utils/toast';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
@@ -39,15 +40,17 @@ import { useAuth } from '../../context/AuthContext';
 import { useAvatar, AVATAR_IMAGES } from '../../hooks/useAvatar';
 import { useStreak } from '../../hooks/useStreak';
 import { useSyncEngine } from '../../hooks/useSyncEngine';
+import { triggerSoftTap } from '../../utils/haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Emojis por nombre de categoría
-const EMOJI_MAP: Record<string, string> = {
-  'Servicios': '🏠',
-  'Gastos necesarios': '🛒',
-  'Gastos sin culpa': '🎉',
-  'Salud': '💊',
-  'Emergencia': '🚨',
-  'Inversión': '📈',
+// Íconos por nombre de categoría
+const ICON_MAP: Record<string, any> = {
+  'Servicios': require('../../../assets/categorias/servicios.png'),
+  'Gastos necesarios': require('../../../assets/categorias/gastos_necesarios.png'),
+  'Gastos sin culpa': require('../../../assets/categorias/gastos_sin_culpa.png'),
+  'Salud': require('../../../assets/categorias/salud.png'),
+  'Emergencia': require('../../../assets/categorias/emergencia.png'),
+  'Inversión': require('../../../assets/categorias/inversiones.png'),
 };
 
 const getGreeting = (username: string) => {
@@ -199,6 +202,7 @@ export default function HomeScreen() {
   const { streak } = useStreak();
   const { triggerSync, syncProgress } = useSyncEngine();
   const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
 
   const styles = React.useMemo(() => getStyles(colors), [colors]);
   const currentHour = new Date().getHours();
@@ -207,6 +211,26 @@ export default function HomeScreen() {
   const { resumen, categoriasReal, patrimonio, loading, refetch } =
     useResumenMensual(mes);
   const { catEgreso } = useCategorias();
+
+  // Cargar estado de saldo oculto desde AsyncStorage
+  useEffect(() => {
+    AsyncStorage.getItem('@app_balance_hidden').then((val) => {
+      if (val !== null) {
+        setIsBalanceHidden(val === 'true');
+      }
+    }).catch(() => {});
+  }, []);
+
+  const toggleBalanceHidden = async () => {
+    triggerSoftTap();
+    const nextVal = !isBalanceHidden;
+    setIsBalanceHidden(nextVal);
+    try {
+      await AsyncStorage.setItem('@app_balance_hidden', nextVal ? 'true' : 'false');
+    } catch (e) {
+      console.warn('[HomeScreen] Error guardando estado de saldo oculto:', e);
+    }
+  };
 
   // Refrescar datos cada vez que la pantalla obtiene el foco
   useEffect(() => {
@@ -240,7 +264,7 @@ export default function HomeScreen() {
     return {
       id: cat.id_local,
       nombre: cat.nombre,
-      emoji: EMOJI_MAP[cat.nombre] ?? '📁',
+      iconSource: ICON_MAP[cat.nombre],
       presupuesto: 0,   // TODO: leer de presupuesto_categoria
       real,
     };
@@ -279,16 +303,39 @@ export default function HomeScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isManualSyncing}
+              onRefresh={async () => {
+                triggerSoftTap();
+                setIsManualSyncing(true);
+                try {
+                  await triggerSync();
+                  refetch();
+                  showToast('Sincronizado con la nube ✅');
+                } catch (e) {
+                  showToast('Error al sincronizar');
+                } finally {
+                  setIsManualSyncing(false);
+                }
+              }}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
         >
           {/* ── HEADER ────────────────────────────────── */}
           <View style={styles.headerRow}>
             {/* Left side fixed width 56 to balance right side */}
             <View style={{ width: 56, alignItems: 'flex-start', justifyContent: 'center' }}>
-              <TouchableOpacity style={styles.hamburgerBtn} activeOpacity={0.7} onPress={() => setShowMenu(true)}>
+              <TouchableOpacity style={styles.hamburgerBtn} activeOpacity={0.7} onPress={() => {
+                triggerSoftTap();
+                setShowMenu(true);
+              }}>
                 <Text style={styles.hamburgerText}>☰</Text>
               </TouchableOpacity>
             </View>
-            
+
             {/* Center flex area */}
             <View style={{ flex: 1, paddingHorizontal: Spacing.md, justifyContent: 'center', alignItems: 'center' }}>
               <Text style={[styles.greeting, forceLightText && { color: '#ffffff' }, { textAlign: 'center' }]}>
@@ -299,7 +346,10 @@ export default function HomeScreen() {
               displayAvatar={displayAvatar}
               syncProgress={syncProgress}
               colors={colors}
-              onPress={() => navigation.navigate('Profile')}
+              onPress={() => {
+                triggerSoftTap();
+                navigation.navigate('Profile');
+              }}
             />
           </View>
 
@@ -336,6 +386,7 @@ export default function HomeScreen() {
                     try {
                       await triggerSync();
                       refetch();
+                      showToast('Sincronización completada ✅');
                     } catch (e) {
                       showToast('Error: No se pudo sincronizar.');
                     } finally {
@@ -374,7 +425,7 @@ export default function HomeScreen() {
           {!loading && patrimonio && (
             <TouchableOpacity
               activeOpacity={0.9}
-              onPress={() => navigation.navigate('BalanceDetail')}
+              onPress={() => { triggerSoftTap(); navigation.navigate('BalanceDetail'); }}
             >
               <LinearGradient
                 colors={heroColors}
@@ -388,7 +439,7 @@ export default function HomeScreen() {
                   <Text style={[styles.heroAmount, { color: '#ffffff', width: 200 }]} numberOfLines={1} adjustsFontSizeToFit>
                     {isBalanceHidden ? 'S/ *******' : formatCurrency(resumen?.diferencia ?? 0)}
                   </Text>
-                  <TouchableOpacity onPress={() => setIsBalanceHidden(!isBalanceHidden)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <TouchableOpacity onPress={toggleBalanceHidden} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Image
                       source={isBalanceHidden ? require('../../../assets/view.png') : require('../../../assets/no view.png')}
                       style={{ width: 24, height: 24, tintColor: '#ffffff' }}
@@ -415,7 +466,7 @@ export default function HomeScreen() {
           {/* ── INGRESOS / EGRESOS ────────────────────── */}
           {!loading && resumen && (
             <View style={styles.row2}>
-              <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'ingreso' })}>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => { triggerSoftTap(); navigation.navigate('CategoryDetail', { mes, tipo: 'ingreso' }); }}>
                 <Card style={styles.halfCard}>
                   <View style={styles.flowIcon}>
                     <Text style={styles.flowEmoji}>⬆</Text>
@@ -427,7 +478,7 @@ export default function HomeScreen() {
                 </Card>
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso' })}>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => { triggerSoftTap(); navigation.navigate('CategoryDetail', { mes, tipo: 'egreso' }); }}>
                 <Card style={styles.halfCard}>
                   <View style={[styles.flowIcon, { backgroundColor: colors.expense + '20' }]}>
                     <Text style={styles.flowEmoji}>⬇</Text>
@@ -444,8 +495,18 @@ export default function HomeScreen() {
           {/* ── PRESUPUESTO POR CATEGORÍA ─────────────── */}
           {!loading && (
             <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Gastos por categoría</Text>
+              <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                  <Text style={styles.sectionTitle}>Gastos por categoría</Text>
+                  <TouchableOpacity
+                    onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+                    style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: colors.bgInput, borderRadius: 6, justifyContent: 'center', alignItems: 'center', minWidth: 40 }}
+                  >
+                    <Text style={{ fontSize: 20, color: colors.textSecondary, fontWeight: 'bold' }}>
+                      {viewMode === 'grid' ? '☰' : '▦'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Budget')}>
                   <Text style={styles.sectionLink}>Ver detalle →</Text>
                 </TouchableOpacity>
@@ -458,19 +519,20 @@ export default function HomeScreen() {
                   <Text style={[styles.emptyText, { fontSize: FontSize.xs, marginTop: 4 }]}>Toca el botón + para registrar tu primer gasto</Text>
                 </View>
               ) : categoriaRows.length > 0 ? (
-                <Card>
+                <View style={viewMode === 'grid' ? { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' } : {}}>
                   {categoriaRows.map((cat, idx) => (
-                    <React.Fragment key={cat.nombre}>
+                    <View key={cat.nombre} style={viewMode === 'grid' ? { width: '48%', marginBottom: Spacing.sm } : { marginBottom: Spacing.sm }}>
                       <TouchableOpacity
                         activeOpacity={0.7}
-                        onPress={() => navigation.navigate('CategoryDetail', { mes, tipo: 'egreso', categoriaId: cat.id })}
+                        onPress={() => { triggerSoftTap(); navigation.navigate('CategoryDetail', { mes, tipo: 'egreso', categoriaId: cat.id }); }}
                       >
-                        <CategoryProgressRow data={cat} />
+                        <Card style={{ padding: Spacing.md }}>
+                          <CategoryProgressRow data={cat} mode={viewMode} />
+                        </Card>
                       </TouchableOpacity>
-                      {idx < categoriaRows.length - 1 && <View style={styles.divider} />}
-                    </React.Fragment>
+                    </View>
                   ))}
-                </Card>
+                </View>
               ) : (
                 <Card>
                   <Text style={styles.emptyText}>No hay categorías disponibles.</Text>
@@ -543,11 +605,11 @@ export default function HomeScreen() {
         </ScrollView>
 
         {/* ── STREAK FAB ───────────────────────────── */}
-        <TouchableOpacity 
-          style={styles.streakFab} 
-          activeOpacity={0.85} 
+        <TouchableOpacity
+          style={styles.streakFab}
+          activeOpacity={0.85}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            triggerSoftTap();
             navigation.navigate('Streak');
           }}
         >
@@ -562,11 +624,11 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         {/* ── FAB ───────────────────────────────────── */}
-        <TouchableOpacity 
-          style={styles.fab} 
-          activeOpacity={0.85} 
+        <TouchableOpacity
+          style={styles.fab}
+          activeOpacity={0.85}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            triggerSoftTap();
             navigation.navigate('AddTransaction');
           }}
         >

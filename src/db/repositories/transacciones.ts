@@ -24,7 +24,8 @@ export interface TransaccionLocal {
   monto_presupuestado: number | null;
   nota: string | null;
   foto_uri: string | null;
-  metodo_pago: 'virtual' | 'efectivo';
+  billetera: string;
+  metodo_pago: 'virtual' | 'efectivo' | string;
   estado_sync: string;
   fecha_modificacion: string;
   eliminado: number;
@@ -42,7 +43,8 @@ export interface NuevaTransaccion {
   monto_presupuestado?: number | null;
   nota?: string | null;
   foto_uri?: string | null;
-  metodo_pago?: 'virtual' | 'efectivo';
+  billetera: string;
+  metodo_pago?: 'virtual' | 'efectivo' | string;
   espacio_id?: string;
 }
 
@@ -58,27 +60,41 @@ export async function insertTransaccion(
   const espacioId = data.espacio_id ?? DEFAULT_ESPACIO_ID;
 
   await db.runAsync(
-    `INSERT INTO transacciones
-       (id_local, espacio_id, fecha, tipo,
-        categoria_ingreso_id, categoria_egreso_id, concepto_detalle_id,
-        monto_real, monto_presupuestado, nota, foto_uri, metodo_pago,
-        estado_sync, fecha_modificacion, eliminado)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pendiente',?,0)`,
-    [
-      id,
-      espacioId,
-      data.fecha,
-      data.tipo,
-      data.categoria_ingreso_id ?? null,
-      data.categoria_egreso_id ?? null,
-      data.concepto_detalle_id ?? null,
-      data.monto_real,
-      data.monto_presupuestado ?? null,
-      data.nota ?? null,
-      data.foto_uri ?? null,
-      data.metodo_pago ?? 'virtual',
-      ts,
-    ],
+    `INSERT INTO transacciones (
+          id_local,
+          id_remoto, 
+          espacio_id, 
+          fecha, 
+          tipo, 
+          categoria_ingreso_id, 
+          categoria_egreso_id, 
+          concepto_detalle_id, 
+          monto_real, 
+          monto_presupuestado, 
+          nota,
+          foto_uri,
+          billetera,
+          metodo_pago,
+          estado_sync, 
+          fecha_modificacion, 
+          eliminado
+        ) VALUES ($id_local, NULL, $espacio_id, $fecha, $tipo, $categoria_ingreso_id, $categoria_egreso_id, $concepto_detalle_id, $monto_real, $monto_presupuestado, $nota, $foto_uri, $billetera, $metodo_pago, 'pendiente', $fecha_modificacion, 0)`,
+    {
+      $id_local: id,
+      $espacio_id: espacioId,
+      $fecha: data.fecha,
+      $tipo: data.tipo,
+      $categoria_ingreso_id: data.categoria_ingreso_id ?? null,
+      $categoria_egreso_id: data.categoria_egreso_id ?? null,
+      $concepto_detalle_id: data.concepto_detalle_id ?? null,
+      $monto_real: data.monto_real,
+      $monto_presupuestado: data.monto_presupuestado ?? null,
+      $nota: data.nota ?? null,
+      $foto_uri: data.foto_uri ?? null,
+      $billetera: data.billetera,
+      $metodo_pago: data.metodo_pago ?? 'virtual',
+      $fecha_modificacion: ts,
+    },
   );
 
   // Encolar para sync
@@ -151,24 +167,31 @@ export async function getSumByTipoMes(
 export async function getTotalesBilletera(
   db: SQLiteDatabase,
   espacioId = DEFAULT_ESPACIO_ID,
-): Promise<{ virtual: number, efectivo: number }> {
-  const rows = await db.getAllAsync<{ metodo_pago: string, total: number }>(
-    `SELECT metodo_pago,
+): Promise<Record<string, number>> {
+  const rows = await db.getAllAsync<{ billetera: string, total: number }>(
+    `SELECT billetera,
             SUM(CASE WHEN tipo = 'ingreso' THEN monto_real ELSE -monto_real END) AS total
        FROM transacciones
       WHERE espacio_id = ? AND eliminado = 0
-      GROUP BY metodo_pago`,
+      GROUP BY billetera`,
     [espacioId],
   );
   
-  let virtual = 0;
-  let efectivo = 0;
+  const balances: Record<string, number> = {
+    'Alfin': 0,
+    'Interbank': 0,
+    'Yape': 0,
+    'Agora': 0,
+    'Efectivo': 0,
+  };
+
   for (const r of rows) {
-    if (r.metodo_pago === 'virtual') virtual = r.total;
-    if (r.metodo_pago === 'efectivo') efectivo = r.total;
+    if (r.billetera) {
+      balances[r.billetera] = r.total;
+    }
   }
   
-  return { virtual, efectivo };
+  return balances;
 }
 
 /** Obtiene el saldo acumulado de todos los meses anteriores hasta la fecha (exclusiva) */

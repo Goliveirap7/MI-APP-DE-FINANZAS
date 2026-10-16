@@ -2,7 +2,8 @@
  * AddTransactionScreen — Registrar transacción (RF-01)
  * Guarda en SQLite local con estado_sync = 'pendiente' (offline-first §18).
  */
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -42,7 +43,11 @@ import { SyncEngine } from '../../db/sync/SyncEngine';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateLabel(iso: string): string {
@@ -62,6 +67,8 @@ const EMOJI_EGRESO: Record<string, string> = {
   'Salud': '💊', 'Emergencia': '🚨', 'Inversión': '📈',
 };
 
+import { useWalletConfig } from '../../hooks/useWalletConfig';
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function AddTransactionScreen() {
@@ -70,6 +77,7 @@ export default function AddTransactionScreen() {
   const db = useDatabase();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
+  const { wallets } = useWalletConfig();
   
   const transaccionId = route.params?.transaccionId as string | undefined;
 
@@ -82,7 +90,7 @@ export default function AddTransactionScreen() {
   const [conceptos, setConceptos]     = useState<{ id_local: string; nombre: string }[]>([]);
   const [fecha, setFecha]             = useState(todayISO());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [metodoPago, setMetodoPago]   = useState<'virtual' | 'efectivo'>('virtual');
+  const [billetera, setBilletera]     = useState<string>('Efectivo');
   const [nota, setNota]               = useState('');
   const [fotoUri, setFotoUri]         = useState<string | null>(null);
   const [saving, setSaving]           = useState(false);
@@ -119,7 +127,7 @@ export default function AddTransactionScreen() {
           setCategoriaId(t.tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id);
           setConceptoId(t.concepto_detalle_id);
           setFecha(t.fecha);
-          setMetodoPago(t.metodo_pago || 'virtual');
+          setBilletera(t.billetera || 'Efectivo');
           setNota(t.nota || '');
           setFotoUri(t.foto_uri || null);
         }
@@ -181,7 +189,8 @@ export default function AddTransactionScreen() {
         monto_real:           montoNum,
         nota: nota.trim() || null,
         foto_uri:             fotoUri,
-        metodo_pago:          metodoPago,
+        billetera:            billetera,
+        metodo_pago:          billetera === 'Efectivo' ? 'efectivo' : 'virtual',
       };
 
       if (isEditing && transaccionId) {
@@ -275,7 +284,7 @@ export default function AddTransactionScreen() {
     setConceptoId(null);
     setNota('');
     setFotoUri(null);
-    setMetodoPago('virtual');
+    setBilletera('Efectivo');
     setFecha(todayISO());
   };
 
@@ -293,7 +302,7 @@ export default function AddTransactionScreen() {
         {/* Header */}
         <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between' }]}>
           {isEditing && (
-            <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+            <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={{ padding: 10 }}>
               <Text style={{ color: colors.primary, fontSize: FontSize.md }}>← Volver</Text>
             </TouchableOpacity>
           )}
@@ -310,22 +319,28 @@ export default function AddTransactionScreen() {
         {/* Toggle */}
         <TypeToggle value={tipo} onChange={handleTipoChange} />
         
-        {/* Toggle Método de Pago */}
-        <View style={styles.walletToggleContainer}>
-          <TouchableOpacity 
-            style={[styles.walletToggleBtn, metodoPago === 'virtual' && styles.walletToggleBtnActive]}
-            onPress={() => setMetodoPago('virtual')}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.walletToggleText, metodoPago === 'virtual' && { color: accentColor }]}>💳 Virtual</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.walletToggleBtn, metodoPago === 'efectivo' && styles.walletToggleBtnActive]}
-            onPress={() => setMetodoPago('efectivo')}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.walletToggleText, metodoPago === 'efectivo' && { color: accentColor }]}>💵 Efectivo</Text>
-          </TouchableOpacity>
+        {/* Selector de Billetera */}
+        <View style={{ marginTop: Spacing.sm }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: Spacing.md, gap: 10 }}>
+            {wallets.map(w => {
+              const isActive = billetera === w.id;
+              return (
+                <TouchableOpacity
+                  key={w.id}
+                  style={[
+                    styles.walletBtn,
+                    isActive && { backgroundColor: w.color, borderColor: w.color }
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => setBilletera(w.id)}
+                >
+                  <Text style={[styles.walletBtnText, isActive && { color: '#FFF' }]}>
+                    {w.icon} {w.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
         {/* Monto display */}
@@ -512,8 +527,8 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
 
   walletToggleContainer: { flexDirection: 'row', backgroundColor: colors.bgInput, borderRadius: Radius.md, padding: 4, marginHorizontal: Spacing.md, marginTop: Spacing.sm },
   walletToggleBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: Radius.sm },
-  walletToggleBtnActive: { backgroundColor: colors.bgCard },
-  walletToggleText: { color: colors.textMuted, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  walletBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bgCard },
+  walletBtnText: { color: colors.textSecondary, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
 
   amountDisplay: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', paddingVertical: Spacing.lg, gap: Spacing.sm },
   currency:      { color: colors.textSecondary, fontSize: FontSize.xl, fontWeight: FontWeight.medium, marginBottom: 8 },

@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Animated,
   ViewStyle,
+  Image,
 } from 'react-native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { formatCurrency, clamp } from '../../utils/format';
@@ -21,7 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 export interface CategoryProgressData {
   nombre: string;
-  emoji?: string;
+  iconSource?: any;
   presupuesto: number;
   real: number;
 }
@@ -29,12 +30,13 @@ export interface CategoryProgressData {
 interface Props {
   data: CategoryProgressData;
   style?: ViewStyle;
+  mode?: 'list' | 'grid';
 }
 
-export default function CategoryProgressRow({ data, style }: Props) {
+export default function CategoryProgressRow({ data, style, mode = 'list' }: Props) {
   const { colors } = useTheme();
   const styles = React.useMemo(() => getStyles(colors), [colors]);
-  const { nombre, emoji, presupuesto, real } = data;
+  const { nombre, iconSource, presupuesto, real } = data;
   const ratio = presupuesto > 0 ? clamp(real / presupuesto, 0, 1) : 0;
   const diferencia = presupuesto - real;
   const sobrePasado = real > presupuesto;
@@ -61,13 +63,55 @@ export default function CategoryProgressRow({ data, style }: Props) {
     else healthEmoji = '🥵';
   }
 
+  if (mode === 'grid') {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.gridHeader}>
+          {iconSource && <Image source={iconSource} style={styles.gridIcon} resizeMode="contain" />}
+          <Text style={styles.gridNombre} numberOfLines={1}>{nombre}</Text>
+        </View>
+
+        <View style={styles.gridAmountRow}>
+          <Text style={[styles.gridDiferencia, { color: sobrePasado ? colors.expense : colors.income }]} numberOfLines={1}>
+            {sobrePasado ? '-' : '+'}{formatCurrency(Math.abs(diferencia))}
+          </Text>
+          {!!healthEmoji && <Text style={{ fontSize: FontSize.sm }}>{healthEmoji}</Text>}
+        </View>
+
+        <View style={styles.trackOuter}>
+          <Animated.View
+            style={[
+              styles.trackInner,
+              {
+                backgroundColor: barColor,
+                width: widthAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          />
+        </View>
+
+        <View style={styles.gridFooter}>
+          <Text style={styles.gridRealLabel} numberOfLines={1}>
+            <Text style={{ color: barColor, fontWeight: FontWeight.semibold }}>
+              {formatCurrency(real)}
+            </Text>
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, style]}>
       {/* Fila superior: nombre + diferencia */}
       <View style={styles.header}>
-        <Text style={styles.nombre}>
-          {emoji ? `${emoji} ` : ''}{nombre}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: Spacing.sm }}>
+          {iconSource && <Image source={iconSource} style={styles.listIcon} resizeMode="contain" />}
+          <Text style={styles.nombre} numberOfLines={1}>{nombre}</Text>
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Text style={[styles.diferencia, { color: sobrePasado ? colors.expense : colors.income }]}>
             {sobrePasado ? '-' : '+'}{formatCurrency(Math.abs(diferencia))}
@@ -146,6 +190,46 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   presupuestoLabel: {
     color: colors.textMuted,
+    fontSize: FontSize.xs,
+  },
+  listIcon: {
+    width: 20,
+    height: 20,
+    marginRight: Spacing.sm,
+  },
+  gridHeader: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  gridIcon: {
+    width: 32,
+    height: 32,
+    marginBottom: 4,
+  },
+  gridNombre: {
+    color: colors.textPrimary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    textAlign: 'center',
+  },
+  gridAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  gridDiferencia: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+  },
+  gridFooter: {
+    marginTop: 2,
+    alignItems: 'center',
+  },
+  gridRealLabel: {
+    color: colors.textSecondary,
     fontSize: FontSize.xs,
   },
 });

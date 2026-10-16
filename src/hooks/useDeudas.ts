@@ -7,6 +7,8 @@ import {
   getDeudasByEspacio,
   getTotalesDeuda,
   insertDeuda,
+  updateDeuda,
+  deleteDeuda,
   marcarDeudaPagada,
   type DeudaLocal,
   type NuevaDeuda,
@@ -22,6 +24,8 @@ export interface UseDeudas {
   filtro:       FiltroDeuda;
   setFiltro:    (f: FiltroDeuda) => void;
   agregar:      (data: NuevaDeuda) => Promise<void>;
+  editar:       (id: string, data: Partial<NuevaDeuda>) => Promise<void>;
+  eliminar:     (id: string) => Promise<void>;
   marcarPagada: (id: string) => Promise<void>;
   refetch:      () => void;
 }
@@ -61,10 +65,20 @@ export function useDeudas(espacioId = DEFAULT_ESPACIO_ID): UseDeudas {
     await load();
   }, [db, load]);
 
+  const editar = useCallback(async (id: string, data: Partial<NuevaDeuda>) => {
+    await updateDeuda(db, id, data);
+    await load();
+  }, [db, load]);
+
+  const eliminar = useCallback(async (id: string) => {
+    await deleteDeuda(db, id);
+    await load();
+  }, [db, load]);
+
   const marcarPagada = useCallback(async (id: string) => {
     await marcarDeudaPagada(db, id);
     await load();
   }, [db, load]);
 
-  return { deudas, totales, loading, filtro, setFiltro, agregar, marcarPagada, refetch: load };
+  return { deudas, totales, loading, filtro, setFiltro, agregar, editar, eliminar, marcarPagada, refetch: load };
 }

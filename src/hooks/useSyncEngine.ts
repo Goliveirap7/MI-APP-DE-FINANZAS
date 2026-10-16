@@ -31,7 +31,8 @@ export function useSyncEngine() {
 
     // 2. Suscribirse a cambios de red. Si vuelve la red, intentar sincronizar.
     const unsubscribe = NetInfo.addEventListener((state) => {
-      if (state.isConnected && state.isInternetReachable) {
+      const isOnline = !!state.isConnected && state.isInternetReachable !== false;
+      if (isOnline) {
         engineRef.current?.processQueue();
       }
     });

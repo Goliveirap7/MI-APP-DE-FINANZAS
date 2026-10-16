@@ -11,8 +11,8 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-
 import { ThemeProvider } from './src/context/ThemeContext';
+import { SecurityProvider } from './src/context/SecurityContext';
 
 export default function App() {
   return (
@@ -21,8 +21,10 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <DbProvider>
-              <StatusBar style="auto" />
-              <RootNavigator />
+              <SecurityProvider>
+                <StatusBar style="auto" />
+                <RootNavigator />
+              </SecurityProvider>
             </DbProvider>
           </AuthProvider>
         </ThemeProvider>

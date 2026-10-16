@@ -1555,8 +1555,8 @@ export async function importShioData(db: SQLiteDatabase) {
       await db.runAsync(
         `INSERT INTO transacciones (
           id_local, espacio_id, fecha, tipo, categoria_ingreso_id, categoria_egreso_id, 
-          monto_real, monto_presupuestado, nota, estado_sync, fecha_modificacion
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
+          monto_real, monto_presupuestado, nota, billetera, estado_sync, fecha_modificacion
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Yape', 'pendiente', ?)`,
         [
           Crypto.randomUUID(), DEFAULT_ESPACIO_ID, item.fecha, tipo,
           cat_ingreso_id, cat_egreso_id, monto_real, monto_presupuestado,

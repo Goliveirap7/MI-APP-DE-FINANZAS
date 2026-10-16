@@ -18,12 +18,12 @@ export const MOCK_RESUMEN: ResumenMensual = {
 };
 
 export const MOCK_CATEGORIAS: CategoryProgressData[] = [
-  { nombre: 'Servicios',        emoji: '🏠', presupuesto: 535.00,  real: 535.00  },
-  { nombre: 'Gastos necesarios',emoji: '🛒', presupuesto: 763.00,  real: 820.40  }, // sobrepasado
-  { nombre: 'Gastos sin culpa', emoji: '🎉', presupuesto: 382.00,  real: 295.00  },
-  { nombre: 'Salud',            emoji: '💊', presupuesto: 191.00,  real: 80.00   },
-  { nombre: 'Emergencia',       emoji: '🚨', presupuesto: 191.00,  real: 150.10  },
-  { nombre: 'Inversión',        emoji: '📈', presupuesto: 764.00,  real: 300.00  },
+  { nombre: 'Servicios',        iconSource: require('../../../assets/categorias/servicios.png'), presupuesto: 535.00,  real: 535.00  },
+  { nombre: 'Gastos necesarios',iconSource: require('../../../assets/categorias/gastos_necesarios.png'), presupuesto: 763.00,  real: 820.40  }, // sobrepasado
+  { nombre: 'Gastos sin culpa', iconSource: require('../../../assets/categorias/gastos_sin_culpa.png'), presupuesto: 382.00,  real: 295.00  },
+  { nombre: 'Salud',            iconSource: require('../../../assets/categorias/salud.png'), presupuesto: 191.00,  real: 80.00   },
+  { nombre: 'Emergencia',       iconSource: require('../../../assets/categorias/emergencia.png'), presupuesto: 191.00,  real: 150.10  },
+  { nombre: 'Inversión',        iconSource: require('../../../assets/categorias/inversiones.png'), presupuesto: 764.00,  real: 300.00  },
 ];
 
 // Patrimonio calculado: disponible + me_deben - debo + invertido

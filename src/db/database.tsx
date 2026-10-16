@@ -42,6 +42,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const database = await SQLite.openDatabaseAsync('app_finanzas.db');
+        
         // Crear tablas si no existen
         await database.execAsync(SCHEMA_SQL);
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -11,12 +12,13 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  Vibration,
+  TextInput,
 } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';
 import { SyncEngine } from '../../db/sync/SyncEngine';
-import * as Haptics from 'expo-haptics';
 import { useCategorias } from '../../hooks/useCategorias';
 import { getTransaccionesDetalle, deleteTransaccion, TransaccionLocal } from '../../db/repositories/transacciones';
 import { formatCurrency } from '../../utils/format';
@@ -34,12 +36,13 @@ export default function CategoryDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation<any>();
   const { mes, tipo, categoriaId } = (route.params as RouteParams) || {};
-  
+
   const db = useDatabase();
   const { catIngreso, catEgreso, conceptosPor } = useCategorias();
-  
+
   const [transacciones, setTransacciones] = useState<TransaccionLocal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -63,37 +66,62 @@ export default function CategoryDetailScreen() {
     }, [loadData])
   );
 
-  const getCategoryName = (id: string | null) => {
+  const getCategoryName = useCallback((id: string | null) => {
     if (!id) return 'Sin categoría';
     if (tipo === 'ingreso') {
       return catIngreso.find(c => c.id_local === id)?.nombre || 'Desconocido';
     } else {
       return catEgreso.find(c => c.id_local === id)?.nombre || 'Desconocido';
     }
-  };
+  }, [tipo, catIngreso, catEgreso]);
+
+  // Transacciones filtradas por el buscador
+  const filteredTransacciones = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return transacciones;
+    return transacciones.filter(t => {
+      const nota = (t.nota || '').toLowerCase();
+      const catName = getCategoryName(tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id).toLowerCase();
+      const montoStr = t.monto_real.toString();
+      const fecha = (t.fecha || '').toLowerCase();
+      const billetera = (t.billetera || '').toLowerCase();
+      return (
+        nota.includes(q) ||
+        catName.includes(q) ||
+        montoStr.includes(q) ||
+        fecha.includes(q) ||
+        billetera.includes(q)
+      );
+    });
+  }, [transacciones, searchQuery, tipo, getCategoryName]);
 
   // Agrupar por nombre de categoría
-  const grouped = transacciones.reduce((acc, t) => {
-    const catId = tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id;
-    const catName = getCategoryName(catId);
-    if (!acc[catName]) acc[catName] = [];
-    acc[catName].push(t);
-    return acc;
-  }, {} as Record<string, TransaccionLocal[]>);
+  const grouped = useMemo(() => {
+    return filteredTransacciones.reduce((acc, t) => {
+      const catId = tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id;
+      const catName = getCategoryName(catId);
+      if (!acc[catName]) acc[catName] = [];
+      acc[catName].push(t);
+      return acc;
+    }, {} as Record<string, TransaccionLocal[]>);
+  }, [filteredTransacciones, tipo, getCategoryName]);
 
-  const sections = Object.keys(grouped).map(title => ({
-    title,
-    data: grouped[title]
-  }));
+  const sections = useMemo(() => {
+    return Object.keys(grouped).map(title => ({
+      title,
+      data: grouped[title]
+    }));
+  }, [grouped]);
 
   const handleLongPress = (id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      triggerSoftTap();
     setIsSelectionMode(true);
     setSelectedIds(new Set([id]));
   };
 
   const handlePressItem = (t: TransaccionLocal) => {
     if (isSelectionMode) {
+        triggerSoftTap();
       const newSelected = new Set(selectedIds);
       if (newSelected.has(t.id_local)) {
         newSelected.delete(t.id_local);
@@ -103,11 +131,13 @@ export default function CategoryDetailScreen() {
       }
       setSelectedIds(newSelected);
     } else {
+        triggerSoftTap();
       navigation.navigate('TransactionDetail', { transaccionId: t.id_local });
     }
   };
 
   const handleSelectAll = () => {
+      triggerSoftTap();
     if (selectedIds.size === transacciones.length) {
       setSelectedIds(new Set());
       setIsSelectionMode(false);
@@ -118,13 +148,15 @@ export default function CategoryDetailScreen() {
 
   const handleDelete = () => {
     if (selectedIds.size === 0) return;
+      triggerSoftTap();
     Alert.alert('Borrar registros', `¿Estás seguro de borrar ${selectedIds.size} registro(s)?`, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Borrar', style: 'destructive', onPress: async () => {
+      {
+        text: 'Borrar', style: 'destructive', onPress: async () => {
           setLoading(true);
           try {
             await Promise.all(Array.from(selectedIds).map(id => deleteTransaccion(db, id)));
-            
+
             // Forzar subida a Supabase de los eliminados al instante
             const syncEngine = new SyncEngine(db);
             await syncEngine.pushToCloud();
@@ -145,7 +177,7 @@ export default function CategoryDetailScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-      
+
       {isSelectionMode ? (
         <View style={styles.header}>
           <TouchableOpacity style={styles.backBtn} onPress={() => { setIsSelectionMode(false); setSelectedIds(new Set()); }}>
@@ -160,13 +192,51 @@ export default function CategoryDetailScreen() {
         </View>
       ) : (
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => { triggerSoftTap(); navigation.goBack(); }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={styles.backBtnText}>Volver</Text></View>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{title}</Text>
           <View style={{ width: 60 }} />
         </View>
       )}
+
+      {/* Buscador de detalles */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder={`Buscar en ${tipo === 'ingreso' ? 'ingresos' : 'gastos'}...`}
+            placeholderTextColor={colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => {
+                triggerSoftTap();
+                setSearchQuery('');
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.clearSearchBtn}
+            >
+              <Text style={styles.clearSearchText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {searchQuery.trim().length > 0 && (
+          <View style={styles.searchMetaRow}>
+            <Text style={styles.searchCountText}>
+              {filteredTransacciones.length} de {transacciones.length} transacciones
+            </Text>
+            <TouchableOpacity onPress={() => { triggerSoftTap(); setSearchQuery(''); }}>
+              <Text style={styles.clearLinkText}>Limpiar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {loading ? (
         <View style={styles.center}>
@@ -175,6 +245,19 @@ export default function CategoryDetailScreen() {
       ) : transacciones.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.emptyText}>No hay registros en esta categoría.</Text>
+        </View>
+      ) : filteredTransacciones.length === 0 ? (
+        <View style={styles.center}>
+          <Text style={{ fontSize: 36, marginBottom: 8 }}>🔎</Text>
+          <Text style={styles.emptySearchTitle}>Sin resultados</Text>
+          <Text style={styles.emptyText}>No encontramos transacciones que coincidan con "{searchQuery}"</Text>
+          <TouchableOpacity
+            style={styles.clearFilterBtn}
+            onPress={() => { triggerSoftTap(); setSearchQuery(''); }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.clearFilterBtnText}>Restablecer búsqueda</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <SectionList
@@ -244,4 +327,82 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   itemAmountCol: { alignItems: 'flex-end' },
   itemAmount: { fontSize: FontSize.lg, fontWeight: FontWeight.bold },
   editHint: { color: colors.primary, fontSize: FontSize.xs, marginTop: 4 },
+  
+  // Estilos del buscador
+  searchContainer: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xs,
+    backgroundColor: colors.bg,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: FontSize.sm,
+    paddingVertical: 4,
+  },
+  clearSearchBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.bgInput,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearSearchText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: FontWeight.bold,
+  },
+  searchMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xs,
+    marginTop: 6,
+  },
+  searchCountText: {
+    color: colors.textMuted,
+    fontSize: FontSize.xs,
+  },
+  clearLinkText: {
+    color: colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  emptySearchTitle: {
+    color: colors.textPrimary,
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  clearFilterBtn: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.full,
+    backgroundColor: colors.primaryDim,
+    borderWidth: 1,
+    borderColor: colors.primary + '50',
+  },
+  clearFilterBtnText: {
+    color: colors.primary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
 });

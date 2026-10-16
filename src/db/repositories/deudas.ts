@@ -44,7 +44,47 @@ export async function insertDeuda(
     [id, espacioId, data.persona, data.monto, data.direccion, data.fecha,
      data.nota ?? null, ts],
   );
+
+  await _enqueue(db, 'deudas', id, 'crear', data, ts);
   return id;
+}
+
+/** Actualiza los datos de una deuda existente. */
+export async function updateDeuda(
+  db: SQLiteDatabase,
+  idLocal: string,
+  data: Partial<NuevaDeuda>,
+): Promise<void> {
+  const ts = new Date().toISOString();
+  const keys = Object.keys(data).filter(k => k !== 'espacio_id');
+  if (keys.length === 0) return;
+
+  const setString = keys.map(k => `${k} = ?`).join(', ');
+  const values = keys.map(k => (data as any)[k]);
+
+  await db.runAsync(
+    `UPDATE deudas
+        SET ${setString}, estado_sync = 'pendiente', fecha_modificacion = ?
+      WHERE id_local = ?`,
+    [...values, ts, idLocal],
+  );
+
+  await _enqueue(db, 'deudas', idLocal, 'editar', data, ts);
+}
+
+/** Elimina lógicamente una deuda. */
+export async function deleteDeuda(
+  db: SQLiteDatabase,
+  idLocal: string,
+): Promise<void> {
+  const ts = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE deudas
+        SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ?
+      WHERE id_local = ?`,
+    [ts, idLocal],
+  );
+  await _enqueue(db, 'deudas', idLocal, 'eliminar', {}, ts);
 }
 
 /** Marca una deuda como pagada. */
@@ -59,6 +99,7 @@ export async function marcarDeudaPagada(
       WHERE id_local = ?`,
     [ts, idLocal],
   );
+  await _enqueue(db, 'deudas', idLocal, 'editar', { estado: 'pagada' }, ts);
 }
 
 export async function getDeudasByEspacio(
@@ -90,4 +131,19 @@ export async function getTotalesDeuda(
   const me_deben = rows.find((r) => r.direccion === 'me_deben')?.total ?? 0;
   const debo     = rows.find((r) => r.direccion === 'debo')?.total ?? 0;
   return { me_deben, debo };
+}
+
+async function _enqueue(
+  db: SQLiteDatabase,
+  tabla: string,
+  idLocal: string,
+  op: 'crear' | 'editar' | 'eliminar',
+  datos: object,
+  ts: string,
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO sync_queue (id, tabla, id_local, tipo_operacion, datos, intentos, creado_en)
+     VALUES (?,?,?,?,?,0,?)`,
+    [Crypto.randomUUID(), tabla, idLocal, op, JSON.stringify(datos), ts],
+  );
 }

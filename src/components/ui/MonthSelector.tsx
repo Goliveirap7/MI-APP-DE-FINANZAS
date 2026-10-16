@@ -7,6 +7,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, TouchableW
 import { FontSize, FontWeight, Spacing, Radius, type ThemeColors } from '../../constants/theme';
 import { formatMesLabel, desplazarMes } from '../../utils/format';
 import { useTheme } from '../../context/ThemeContext';
+import { triggerSoftTap } from '../../utils/haptics';
 
 interface MonthSelectorProps {
   mes: string;              // 'YYYY-MM-01'
@@ -52,7 +53,7 @@ export default function MonthSelector({
       <TouchableOpacity 
         style={styles.row} 
         activeOpacity={0.7} 
-        onPress={() => setModalVisible(true)}
+        onPress={() => { triggerSoftTap(); setModalVisible(true); }}
       >
         <Text style={[styles.label, textColor ? { color: textColor } : {}]}>{formatMesLabel(mes)}</Text>
         <Image 
@@ -70,7 +71,7 @@ export default function MonthSelector({
                 
                 {/* Selector de Año */}
                 <View style={styles.yearHeader}>
-                  <TouchableOpacity onPress={() => setSelectedYear(y => y - 1)} style={styles.yearArrow}>
+                  <TouchableOpacity onPress={() => { triggerSoftTap(); setSelectedYear(y => y - 1); }} style={styles.yearArrow}>
                     <Image 
                       source={require('../../../assets/flechas/izquierda.png')} 
                       style={[styles.yearArrowIcon, { tintColor: colors.textPrimary }]} 
@@ -79,7 +80,7 @@ export default function MonthSelector({
                   </TouchableOpacity>
                   <Text style={styles.yearText}>{selectedYear}</Text>
                   <TouchableOpacity 
-                    onPress={() => setSelectedYear(y => y + 1)} 
+                    onPress={() => { triggerSoftTap(); setSelectedYear(y => y + 1); }} 
                     style={styles.yearArrow}
                     disabled={disableFuture && selectedYear >= currentYear}
                   >
@@ -100,7 +101,7 @@ export default function MonthSelector({
                       <TouchableOpacity 
                         key={monthName} 
                         style={[styles.monthItem, isSelected && { backgroundColor: colors.primary + '20' }]} 
-                        onPress={() => handleSelect(index)}
+                        onPress={() => { triggerSoftTap(); handleSelect(index); }}
                         disabled={isFuture}
                       >
                         <Text style={[

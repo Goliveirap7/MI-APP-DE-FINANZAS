@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -70,7 +71,7 @@ export default function StreakScreen() {
         
         {/* HEADER */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={styles.backBtn}>
             <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>DAY STREAK</Text>

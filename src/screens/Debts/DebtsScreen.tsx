@@ -16,7 +16,8 @@
  *  └───────────────────────────────────────┘
  *  FAB ＋ → abre BottomSheet con formulario
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { triggerSoftTap } from '../../utils/haptics';
 import {
   View,
   Text,
@@ -41,8 +42,10 @@ import Card from '../../components/ui/Card';
 import BottomSheet from '../../components/ui/BottomSheet';
 import TypeToggle from '../../components/ui/TypeToggle';
 
+import { useDatabase } from '../../db/database';
+import { SyncEngine } from '../../db/sync/SyncEngine';
 import { useDeudas, type FiltroDeuda } from '../../hooks/useDeudas';
-import type { NuevaDeuda } from '../../db/repositories/deudas';
+import type { NuevaDeuda, DeudaLocal } from '../../db/repositories/deudas';
 import { useTheme } from '../../context/ThemeContext';
 import { showToast } from '../../utils/toast';
 
@@ -61,39 +64,69 @@ const FILTROS: { key: FiltroDeuda; label: string }[] = [
 export default function DebtsScreen() {
   const navigation = useNavigation<any>();
   const { colors } = useTheme();
+  const db = useDatabase();
   const styles = React.useMemo(() => getStyles(colors), [colors]);
-  const { deudas, totales, loading, filtro, setFiltro, agregar, marcarPagada } = useDeudas();
+  const { deudas, totales, loading, filtro, setFiltro, agregar, editar, eliminar, marcarPagada } = useDeudas();
 
   // Estado del form
-  const [showForm, setShowForm]     = useState(false);
-  const [persona, setPersona]       = useState('');
-  const [monto, setMonto]           = useState('');
-  const [direccion, setDireccion]   = useState<'me_deben'|'debo'>('me_deben');
-  const [nota, setNota]             = useState('');
-  const [saving, setSaving]         = useState(false);
+  const [showForm, setShowForm]         = useState(false);
+  const [editingDeudaId, setEditingDeudaId] = useState<string | null>(null);
+  const [persona, setPersona]           = useState('');
+  const [monto, setMonto]               = useState('');
+  const [direccion, setDireccion]       = useState<'me_deben'|'debo'>('me_deben');
+  const [nota, setNota]                 = useState('');
+  const [saving, setSaving]             = useState(false);
 
   const neto = totales.me_deben - totales.debo;
 
   const resetForm = () => {
     setPersona(''); setMonto(''); setNota('');
     setDireccion('me_deben');
+    setEditingDeudaId(null);
   };
 
-  const handleAgregar = async () => {
+  const openCreate = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const openEdit = (d: DeudaLocal) => {
+    triggerSoftTap();
+    setEditingDeudaId(d.id_local);
+    setPersona(d.persona);
+    setMonto(d.monto.toString());
+    setDireccion(d.direccion);
+    setNota(d.nota || '');
+    setShowForm(true);
+  };
+
+  const handleGuardar = async () => {
     const montoNum = parseFloat(monto.replace(',', '.'));
     if (!persona.trim()) { showToast('Falta el nombre: Escribe el nombre de la persona.'); return; }
     if (!montoNum || montoNum <= 0) { showToast('Monto inválido: Ingresa un monto mayor a 0.'); return; }
 
     setSaving(true);
     try {
-      const data: NuevaDeuda = {
-        persona: persona.trim(),
-        monto: montoNum,
-        direccion,
-        fecha: todayISO(),
-        nota: nota.trim() || null,
-      };
-      await agregar(data);
+      if (editingDeudaId) {
+        await editar(editingDeudaId, {
+          persona: persona.trim(),
+          monto: montoNum,
+          direccion,
+          nota: nota.trim() || null,
+        });
+        showToast('Deuda actualizada correctamente.');
+      } else {
+        const data: NuevaDeuda = {
+          persona: persona.trim(),
+          monto: montoNum,
+          direccion,
+          fecha: todayISO(),
+          nota: nota.trim() || null,
+        };
+        await agregar(data);
+        showToast('Deuda guardada correctamente.');
+      }
+      new SyncEngine(db).pushToCloud();
       setShowForm(false);
       resetForm();
     } catch (e: any) {
@@ -101,6 +134,30 @@ export default function DebtsScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleEliminarDeuda = (id: string, nombrePersona: string) => {
+    Alert.alert(
+      'Eliminar deuda',
+      `¿Estás seguro de eliminar el registro de deuda con ${nombrePersona}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            triggerSoftTap();
+            try {
+              await eliminar(id);
+              new SyncEngine(db).pushToCloud();
+              showToast('Deuda eliminada.');
+            } catch (e: any) {
+              showToast('Error al eliminar: ' + e?.message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleMarcarPagada = (id: string, persona: string) => {
@@ -128,7 +185,7 @@ export default function DebtsScreen() {
           <TouchableOpacity 
             style={styles.backBtn} 
             activeOpacity={0.7} 
-            onPress={() => navigation.goBack()}
+            onPress={() => { triggerSoftTap(); navigation.goBack(); }}
           >
             <Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 16, height: 16, tintColor: colors.textPrimary }} resizeMode="contain" />
           </TouchableOpacity>
@@ -215,12 +272,28 @@ export default function DebtsScreen() {
                   </View>
                 </View>
 
-                {/* Badge dirección + estado */}
+                {/* Badge dirección + estado + acciones */}
                 <View style={styles.deudaBadges}>
-                  <View style={[styles.badge, { backgroundColor: accentColor + '20', borderColor: accentColor + '50' }]}>
-                    <Text style={[styles.badgeText, { color: accentColor }]}>
-                      {esMeDeben ? 'Me deben' : 'Debo'}
-                    </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      style={styles.actionIconBtn}
+                      onPress={() => openEdit(d)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={{ fontSize: 13 }}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actionIconBtn}
+                      onPress={() => handleEliminarDeuda(d.id_local, d.persona)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={{ fontSize: 13 }}>🗑️</Text>
+                    </TouchableOpacity>
+                    <View style={[styles.badge, { backgroundColor: accentColor + '20', borderColor: accentColor + '50' }]}>
+                      <Text style={[styles.badgeText, { color: accentColor }]}>
+                        {esMeDeben ? 'Me deben' : 'Debo'}
+                      </Text>
+                    </View>
                   </View>
                   {esPagada && (
                     <View style={styles.badgePagada}>
@@ -266,7 +339,7 @@ export default function DebtsScreen() {
       </ScrollView>
 
       {/* ── FAB ─────────────────────────────────── */}
-      <TouchableOpacity style={styles.fab} onPress={() => setShowForm(true)} activeOpacity={0.85}>
+      <TouchableOpacity style={styles.fab} onPress={openCreate} activeOpacity={0.85}>
         <LinearGradient
           colors={[colors.debt, '#e06a20']}
           style={styles.fabGradient}
@@ -277,11 +350,11 @@ export default function DebtsScreen() {
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* ── Bottom Sheet: Agregar deuda ──────────── */}
+      {/* ── Bottom Sheet: Agregar o Editar deuda ──── */}
       <BottomSheet
         visible={showForm}
         onClose={() => { setShowForm(false); resetForm(); }}
-        title="Nueva deuda"
+        title={editingDeudaId ? "Editar deuda" : "Nueva deuda"}
       >
         {/* Dirección toggle */}
         <View style={styles.formRow}>
@@ -349,9 +422,9 @@ export default function DebtsScreen() {
           />
         </View>
 
-        {/* Guardar */}
+        {/* Guardar / Actualizar */}
         <TouchableOpacity
-          onPress={handleAgregar}
+          onPress={handleGuardar}
           disabled={saving}
           activeOpacity={0.85}
           style={styles.saveWrapper}
@@ -364,7 +437,7 @@ export default function DebtsScreen() {
           >
             {saving
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.saveBtnText}>Guardar deuda</Text>
+              : <Text style={styles.saveBtnText}>{editingDeudaId ? 'Actualizar deuda' : 'Guardar deuda'}</Text>
             }
           </LinearGradient>
         </TouchableOpacity>
@@ -425,6 +498,7 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   personaFecha: { color: colors.textMuted, fontSize: FontSize.xs, marginTop: 2 },
   deudaBadges: { gap: 4, alignItems: 'flex-end' },
   badge:       { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.full, borderWidth: 1 },
+  actionIconBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center' },
   badgeText:   { fontSize: FontSize.xs, fontWeight: FontWeight.medium },
   badgePagada: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: Radius.full, backgroundColor: colors.primary + '20', borderWidth: 1, borderColor: colors.primary + '50' },
   badgePagadaText: { fontSize: FontSize.xs, color: colors.primary },
