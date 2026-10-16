@@ -210,7 +210,7 @@ export default function HomeScreen() {
 
   const { resumen, categoriasReal, patrimonio, loading, refetch } =
     useResumenMensual(mes);
-  const { catEgreso } = useCategorias();
+  const { catEgreso, refetch: refetchCategorias } = useCategorias();
 
   // Cargar estado de saldo oculto desde AsyncStorage
   useEffect(() => {
@@ -236,8 +236,9 @@ export default function HomeScreen() {
   useEffect(() => {
     if (isFocused) {
       refetch();
+      refetchCategorias();
     }
-  }, [isFocused, refetch]);
+  }, [isFocused, refetch, refetchCategorias]);
 
   const porcentajeGastado =
     resumen && resumen.disponible > 0
@@ -372,6 +373,11 @@ export default function HomeScreen() {
                   <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Investments'); }}>
                     <Text style={styles.menuItemIcon}>📈</Text>
                     <Text style={styles.menuItemText}>Mis Inversiones</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Categories'); }}>
+                    <Text style={styles.menuItemIcon}>🏷️</Text>
+                    <Text style={styles.menuItemText}>Categorías y Conceptos</Text>
                   </TouchableOpacity>
 
                   <View style={styles.menuDivider} />

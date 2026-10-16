@@ -77,6 +77,12 @@ export default function BudgetScreen() {
     refetch,
   } = usePresupuesto(mes);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
+
   const errorMonto      = Math.abs(totalMonto - disponible);
   const pctRatio        = disponible > 0 ? clamp(totalMonto / disponible, 0, 1) : 0;
   const pctCompleto     = disponible > 0 && errorMonto <= 0.1;

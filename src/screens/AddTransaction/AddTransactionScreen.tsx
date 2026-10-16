@@ -32,7 +32,7 @@ import CategoryPicker, { type CategoryOption } from '../../components/ui/Categor
 import { useCategorias } from '../../hooks/useCategorias';
 import { insertTransaccion, getTransaccionById, updateTransaccion, deleteTransaccion } from '../../db/repositories/transacciones';
 import { useDatabase } from '../../db/database';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useIsFocused } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -77,11 +77,18 @@ export default function AddTransactionScreen() {
   const db = useDatabase();
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const { wallets } = useWalletConfig();
   
   const transaccionId = route.params?.transaccionId as string | undefined;
 
-  const { catIngreso, catEgreso, conceptosPor, loading: loadingCats } = useCategorias();
+  const { catIngreso, catEgreso, conceptosPor, loading: loadingCats, refetch: refetchCategorias } = useCategorias();
+
+  useEffect(() => {
+    if (isFocused) {
+      refetchCategorias();
+    }
+  }, [isFocused, refetchCategorias]);
 
   const [tipo, setTipo]               = useState<TipoTransaccion>('egreso');
   const [monto, setMonto]             = useState('');
