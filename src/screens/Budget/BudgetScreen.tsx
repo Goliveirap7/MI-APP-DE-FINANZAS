@@ -29,12 +29,14 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { formatCurrency, formatPercent, mesActualISO, clamp } from '../../utils/format';
+import { triggerSoftTap } from '../../utils/haptics';
 
 import MonthSelector from '../../components/ui/MonthSelector';
 import Card from '../../components/ui/Card';
@@ -63,6 +65,7 @@ export default function BudgetScreen() {
   const db = useDatabase();
   const styles = React.useMemo(() => getStyles(colors), [colors]);
   const [mes, setMes] = useState(mesActualISO());
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const {
     disponible,
@@ -71,6 +74,8 @@ export default function BudgetScreen() {
     totalMonto,
     loading,
     saving,
+    hasExistingBudget,
+    existingBudgetSummary,
     updatePct,
     updateMonto,
     guardar,
@@ -99,14 +104,25 @@ export default function BudgetScreen() {
       showToast(`Has asignado S/ ${totalMonto.toFixed(2)} pero tienes S/ ${disponible.toFixed(2)} disponibles.`);
       return;
     }
+    // Si ya existe un presupuesto previo asignado, mostrar modal de confirmación con el listado
+    if (hasExistingBudget && existingBudgetSummary.length > 0) {
+      triggerSoftTap();
+      setShowConfirmModal(true);
+    } else {
+      await ejecutarGuardado();
+    }
+  };
+
+  const ejecutarGuardado = async () => {
+    setShowConfirmModal(false);
     try {
       await guardar();
       new SyncEngine(db).pushToCloud();
-      showToast('El presupuesto del mes fue guardado correctamente.');
+      showToast('El presupuesto del mes fue guardado correctamente ✅');
       refetch();
     } catch (e: any) {
       showToast('Error: ' + (e?.message ?? 'No se pudo guardar.'));
-    } finally { };
+    }
   };
 
   return (
@@ -285,6 +301,67 @@ export default function BudgetScreen() {
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
+
+      {/* ── MODAL DE CONFIRMACIÓN DE CAMBIO DE PRESUPUESTO ── */}
+      <Modal
+        visible={showConfirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Presupuesto actual detectado</Text>
+            <Text style={styles.modalSub}>
+              Ya tienes un presupuesto actual asignado para este mes:
+            </Text>
+
+            <View style={styles.summaryList}>
+              <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator={false}>
+                {existingBudgetSummary.map((item, idx) => (
+                  <View key={idx} style={styles.summaryRow}>
+                    <Text style={styles.summaryCatName} numberOfLines={1}>
+                      {EMOJI[item.nombre] || '📁'} {item.nombre}
+                    </Text>
+                    <View style={styles.summaryRight}>
+                      <Text style={styles.summaryPct}>{item.pct.toFixed(1)}%</Text>
+                      <Text style={styles.summaryMonto}>{formatCurrency(item.monto)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+
+            <Text style={styles.modalQuestion}>
+              ¿Estás seguro que deseas cambiarlo?
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                activeOpacity={0.7}
+                onPress={() => {
+                  triggerSoftTap();
+                  setShowConfirmModal(false);
+                }}
+              >
+                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalBtnConfirm}
+                activeOpacity={0.8}
+                onPress={() => {
+                  triggerSoftTap();
+                  ejecutarGuardado();
+                }}
+              >
+                <Text style={styles.modalBtnTextConfirm}>Aceptar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -380,4 +457,109 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   saveBtn: { paddingVertical: Spacing.md + 2, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: FontWeight.bold },
+
+  // Modal confirmación
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: colors.bgCard,
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  modalSub: {
+    fontSize: FontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  summaryList: {
+    backgroundColor: colors.bg,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginVertical: Spacing.xs,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '50',
+  },
+  summaryCatName: {
+    fontSize: FontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: FontWeight.medium,
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  summaryRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  summaryPct: {
+    fontSize: FontSize.xs + 1,
+    fontWeight: FontWeight.bold,
+    color: colors.primary,
+  },
+  summaryMonto: {
+    fontSize: FontSize.xs + 1,
+    fontWeight: FontWeight.semibold,
+    color: colors.textPrimary,
+  },
+  modalQuestion: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: colors.textPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.md,
+    textAlign: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  modalBtnCancel: {
+    flex: 1,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: Radius.md,
+    backgroundColor: colors.bgCardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBtnConfirm: {
+    flex: 1,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: Radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBtnTextCancel: {
+    color: colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  modalBtnTextConfirm: {
+    color: '#fff',
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
 });

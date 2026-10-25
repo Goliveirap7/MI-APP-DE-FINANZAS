@@ -19,6 +19,12 @@ export interface BudgetRow {
   diferencia:         number;   // presupuesto - real
 }
 
+export interface BudgetSummaryItem {
+  nombre: string;
+  pct: number;
+  monto: number;
+}
+
 export interface UsePresupuesto {
   disponible:   number;
   rows:         BudgetRow[];
@@ -26,6 +32,8 @@ export interface UsePresupuesto {
   totalMonto:   number;        // suma de montos
   loading:      boolean;
   saving:       boolean;
+  hasExistingBudget: boolean;
+  existingBudgetSummary: BudgetSummaryItem[];
   updatePct:    (catId: string, nuevoPct: number) => void;
   updateMonto:  (catId: string, nuevoMonto: number) => void;
   guardar:      () => Promise<void>;
@@ -49,6 +57,8 @@ export function usePresupuesto(
 
   const [disponible, setDisponible] = useState(0);
   const [rows, setRows]             = useState<BudgetRow[]>([]);
+  const [hasExistingBudget, setHasExistingBudget] = useState(false);
+  const [existingBudgetSummary, setExistingBudgetSummary] = useState<BudgetSummaryItem[]>([]);
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
 
@@ -72,12 +82,36 @@ export function usePresupuesto(
         getSumByCategoriaMes(db, mes, espacioId),
       ]);
 
+      const hasBudget = presupuestos.some((p) => p.monto_asignado > 0 || p.porcentaje_asignado > 0);
+      setHasExistingBudget(hasBudget);
+
+      // Resumen del presupuesto actualmente guardado (para confirmación)
+      const summary: BudgetSummaryItem[] = cats
+        .map((cat) => {
+          const saved = presupuestos.find((p) => p.categoria_egreso_id === cat.id_local);
+          if (!saved || (saved.monto_asignado <= 0 && saved.porcentaje_asignado <= 0)) return null;
+          let monto = saved.monto_asignado;
+          let pct = saved.porcentaje_asignado * 100;
+          if (monto === 0 && saved.porcentaje_asignado > 0 && disp > 0) {
+            monto = saved.porcentaje_asignado * disp;
+          } else if (pct === 0 && disp > 0 && monto > 0) {
+            pct = (monto / disp) * 100;
+          }
+          return {
+            nombre: cat.nombre,
+            pct: Number(pct.toFixed(1)),
+            monto: Number(monto.toFixed(2)),
+          };
+        })
+        .filter(Boolean) as BudgetSummaryItem[];
+
+      setExistingBudgetSummary(summary);
+
       const built: BudgetRow[] = cats.map((cat) => {
         const saved = presupuestos.find((p) => p.categoria_egreso_id === cat.id_local);
         let monto = 0;
         let pct = 0;
         if (saved) {
-          // Backward compatibility: If monto_asignado is 0 but we had a porcentaje_asignado, calculate it
           if (saved.monto_asignado > 0) {
             monto = saved.monto_asignado;
           } else if (saved.porcentaje_asignado > 0) {
@@ -165,5 +199,18 @@ export function usePresupuesto(
     }
   }, [db, mes, rows, totalMonto, disponible, espacioId]);
 
-  return { disponible, rows, totalPct, totalMonto, loading, saving, updatePct, updateMonto, guardar, refetch: load };
+  return {
+    disponible,
+    rows,
+    totalPct,
+    totalMonto,
+    loading,
+    saving,
+    hasExistingBudget,
+    existingBudgetSummary,
+    updatePct,
+    updateMonto,
+    guardar,
+    refetch: load,
+  };
 }

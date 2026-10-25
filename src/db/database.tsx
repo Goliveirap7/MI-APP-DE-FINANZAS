@@ -21,6 +21,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 
 import { SCHEMA_SQL } from './schema';
 import { seedIfEmpty } from './seed';
+import { migrarTransaccionesSinCategoriaATransferencias } from './repositories/categorias';
 import { FontSize, type ThemeColors } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 
@@ -75,6 +76,14 @@ export function DbProvider({ children }: { children: ReactNode }) {
 
         // Sembrar catálogo inicial si la DB está vacía
         await seedIfEmpty(database);
+
+        // Migración: asegurar categoría Transferencias y mover transacciones sin categoría
+        try {
+          await migrarTransaccionesSinCategoriaATransferencias(database);
+        } catch (migErr) {
+          console.warn('[DB] Error ejecutando migración de transferencias:', migErr);
+        }
+
         setDb(database);
       } catch (e: any) {
         console.error('[DB] Error inicializando SQLite:', e);

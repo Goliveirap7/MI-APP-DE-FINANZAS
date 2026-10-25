@@ -11,12 +11,15 @@ import {
   Modal,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';
 import { getHistorial, insertTransaccion, type TransaccionLocal } from '../../db/repositories/transacciones';
+import { getOrCreateCategoriaTransferencias } from '../../db/repositories/categorias';
 import { useResumenMensual } from '../../hooks/useResumenMensual';
 import { formatCurrency, formatDateMedium } from '../../utils/format';
 import { useCategorias } from '../../hooks/useCategorias';
@@ -35,7 +38,7 @@ export default function BalanceDetailScreen() {
   
   const currentMonth = new Date().toISOString().split('T')[0].substring(0, 7) + '-01';
   const { patrimonio, loading: loadingResumen, refetch } = useResumenMensual(currentMonth);
-  const { catIngreso } = useCategorias();
+  const { catIngreso, catEgreso } = useCategorias();
 
   const [historial, setHistorial] = useState<TransaccionLocal[]>([]);
   const [loadingHistorial, setLoadingHistorial] = useState(true);
@@ -74,9 +77,12 @@ export default function BalanceDetailScreen() {
   }, [loadHistory]);
 
   const getCatName = (id: string | null) => {
-    if (!id) return 'Otros';
-    const c = catIngreso.find(x => x.id_local === id);
-    return c ? c.nombre : 'Otros';
+    if (!id) return 'Sin categoría';
+    const cIng = catIngreso.find(x => x.id_local === id);
+    if (cIng) return cIng.nombre;
+    const cEgr = catEgreso.find(x => x.id_local === id);
+    if (cEgr) return cEgr.nombre;
+    return 'Sin categoría';
   };
 
   const handleAdjust = async () => {
@@ -131,6 +137,7 @@ export default function BalanceDetailScreen() {
     setSaving(true);
     try {
       const date = new Date().toISOString().split('T')[0];
+      const { egresoId, ingresoId } = await getOrCreateCategoriaTransferencias(db);
       
       // Egreso de origen
       await insertTransaccion(db, {
@@ -139,6 +146,7 @@ export default function BalanceDetailScreen() {
         monto_real: amount,
         billetera: transferOrigin,
         metodo_pago: transferOrigin === 'Efectivo' ? 'efectivo' : 'virtual',
+        categoria_egreso_id: egresoId,
         nota: `Transferencia a ${transferDest}`,
       } as any);
 
@@ -149,6 +157,7 @@ export default function BalanceDetailScreen() {
         monto_real: amount,
         billetera: transferDest,
         metodo_pago: transferDest === 'Efectivo' ? 'efectivo' : 'virtual',
+        categoria_ingreso_id: ingresoId,
         nota: `Transferencia desde ${transferOrigin}`,
       } as any);
 
@@ -295,136 +304,160 @@ export default function BalanceDetailScreen() {
       </ScrollView>
 
       {/* MODAL AJUSTE */}
-      <Modal visible={showAdjust} transparent animationType="slide">
-        <View style={styles.modalBg}>
+      <Modal visible={showAdjust} transparent animationType="slide" onRequestClose={() => setShowAdjust(false)}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={styles.modalBg}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowAdjust(false)}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Ajustar Saldo</Text>
-            <Text style={styles.modalSub}>Actualiza el saldo real de tu cuenta.</Text>
-            
-            <View style={styles.modalWallets}>
-              {wallets.map(w => (
-                <TouchableOpacity 
-                  key={w.id} 
-                  style={[styles.modalWalletBtn, adjustWallet === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
-                  onPress={() => setAdjustWallet(w.id)}
-                >
-                  <Text style={[styles.modalWalletText, adjustWallet === w.id && { color: w.color }]}>{w.label}</Text>
+            <ScrollView bounces={false} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Ajustar Saldo</Text>
+              <Text style={styles.modalSub}>Actualiza el saldo real de tu cuenta.</Text>
+              
+              <View style={styles.modalWallets}>
+                {wallets.map(w => (
+                  <TouchableOpacity 
+                    key={w.id} 
+                    style={[styles.modalWalletBtn, adjustWallet === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
+                    onPress={() => setAdjustWallet(w.id)}
+                  >
+                    <Text style={[styles.modalWalletText, adjustWallet === w.id && { color: w.color }]}>{w.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.input}
+                placeholder="S/ 0.00 (Nuevo saldo real)"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                value={adjustAmount}
+                onChangeText={setAdjustAmount}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAdjust(false)}>
+                  <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={styles.input}
-              placeholder="S/ 0.00 (Nuevo saldo real)"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="decimal-pad"
-              value={adjustAmount}
-              onChangeText={setAdjustAmount}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowAdjust(false)}>
-                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleAdjust} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnTextConfirm}>Ajustar</Text>}
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleAdjust} disabled={saving}>
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnTextConfirm}>Ajustar</Text>}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* MODAL TRANSFERENCIA */}
-      <Modal visible={showTransfer} transparent animationType="slide">
-        <View style={styles.modalBg}>
+      <Modal visible={showTransfer} transparent animationType="slide" onRequestClose={() => setShowTransfer(false)}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={styles.modalBg}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowTransfer(false)}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Transferir Saldo</Text>
-            
-            <Text style={styles.modalLabel}>Desde:</Text>
-            <View style={styles.modalWallets}>
-              {wallets.map(w => (
-                <TouchableOpacity 
-                  key={'orig'+w.id} 
-                  style={[styles.modalWalletBtn, transferOrigin === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
-                  onPress={() => setTransferOrigin(w.id)}
-                >
-                  <Text style={[styles.modalWalletText, transferOrigin === w.id && { color: w.color }]}>{w.label}</Text>
+            <ScrollView bounces={false} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Transferir Saldo</Text>
+              
+              <Text style={styles.modalLabel}>Desde:</Text>
+              <View style={styles.modalWallets}>
+                {wallets.map(w => (
+                  <TouchableOpacity 
+                    key={'orig'+w.id} 
+                    style={[styles.modalWalletBtn, transferOrigin === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
+                    onPress={() => setTransferOrigin(w.id)}
+                  >
+                    <Text style={[styles.modalWalletText, transferOrigin === w.id && { color: w.color }]}>{w.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.modalLabel}>Hacia:</Text>
+              <View style={styles.modalWallets}>
+                {wallets.map(w => (
+                  <TouchableOpacity 
+                    key={'dest'+w.id} 
+                    style={[styles.modalWalletBtn, transferDest === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
+                    onPress={() => setTransferDest(w.id)}
+                  >
+                    <Text style={[styles.modalWalletText, transferDest === w.id && { color: w.color }]}>{w.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.input}
+                placeholder="S/ 0.00 (Monto a transferir)"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                value={transferAmount}
+                onChangeText={setTransferAmount}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowTransfer(false)}>
+                  <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.modalLabel}>Hacia:</Text>
-            <View style={styles.modalWallets}>
-              {wallets.map(w => (
-                <TouchableOpacity 
-                  key={'dest'+w.id} 
-                  style={[styles.modalWalletBtn, transferDest === w.id && { borderColor: w.color, backgroundColor: w.color + '10' }]}
-                  onPress={() => setTransferDest(w.id)}
-                >
-                  <Text style={[styles.modalWalletText, transferDest === w.id && { color: w.color }]}>{w.label}</Text>
+                <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleTransfer} disabled={saving}>
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnTextConfirm}>Transferir</Text>}
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={styles.input}
-              placeholder="S/ 0.00 (Monto a transferir)"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="decimal-pad"
-              value={transferAmount}
-              onChangeText={setTransferAmount}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowTransfer(false)}>
-                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleTransfer} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnTextConfirm}>Transferir</Text>}
-              </TouchableOpacity>
-            </View>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* MODAL EDITAR NOMBRE DE BANCO / CUENTA LOCAL */}
-      <Modal visible={showEditWalletModal} transparent animationType="slide">
-        <View style={styles.modalBg}>
+      <Modal visible={showEditWalletModal} transparent animationType="slide" onRequestClose={() => { setShowEditWalletModal(false); setEditingWallet(null); }}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={styles.modalBg}
+        >
+          <TouchableWithoutFeedback onPress={() => { setShowEditWalletModal(false); setEditingWallet(null); }}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Editar Nombre del Banco</Text>
-            <Text style={styles.modalSub}>
-              Personaliza el nombre de esta cuenta para adaptarlo al banco que usas (ej. BCP, BBVA, Scotiabank). Este cambio es solo local para tu cuenta.
-            </Text>
+            <ScrollView bounces={false} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Editar Nombre del Banco</Text>
+              <Text style={styles.modalSub}>
+                Personaliza el nombre de esta cuenta para adaptarlo al banco que usas (ej. BCP, BBVA, Scotiabank). Este cambio es solo local para tu cuenta.
+              </Text>
 
-            <Text style={styles.modalLabel}>Nombre local para "{editingWallet?.id}"</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Escribe el nombre de tu banco"
-              placeholderTextColor={colors.textMuted}
-              value={customWalletName}
-              onChangeText={setCustomWalletName}
-              autoCapitalize="words"
-            />
+              <Text style={styles.modalLabel}>Nombre local para "{editingWallet?.id}"</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Escribe el nombre de tu banco"
+                placeholderTextColor={colors.textMuted}
+                value={customWalletName}
+                onChangeText={setCustomWalletName}
+                autoCapitalize="words"
+              />
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={styles.modalBtnCancel} 
-                onPress={() => {
-                  setShowEditWalletModal(false);
-                  setEditingWallet(null);
-                }}
-              >
-                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalBtnConfirm} 
-                onPress={handleSaveWalletName}
-              >
-                <Text style={styles.modalBtnTextConfirm}>Guardar</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalBtnCancel} 
+                  onPress={() => {
+                    setShowEditWalletModal(false);
+                    setEditingWallet(null);
+                  }}
+                >
+                  <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.modalBtnConfirm} 
+                  onPress={handleSaveWalletName}
+                >
+                  <Text style={styles.modalBtnTextConfirm}>Guardar</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -472,7 +505,7 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   emptyText: { color: colors.textMuted, fontSize: FontSize.md },
 
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: colors.bg, padding: Spacing.xl, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl },
+  modalCard: { backgroundColor: colors.bg, padding: Spacing.xl, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, maxHeight: '85%' },
   modalTitle: { color: colors.textPrimary, fontSize: FontSize.xl, fontWeight: FontWeight.bold, marginBottom: Spacing.xs },
   modalSub: { color: colors.textSecondary, fontSize: FontSize.sm, marginBottom: Spacing.lg },
   modalLabel: { color: colors.textPrimary, fontSize: FontSize.sm, fontWeight: FontWeight.bold, marginTop: Spacing.sm, marginBottom: Spacing.xs },
