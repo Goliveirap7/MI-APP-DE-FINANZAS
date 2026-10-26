@@ -259,17 +259,19 @@ export default function HomeScreen() {
     return isDark ? ['#1a1040', '#0d1a40'] : [colors.primary, colors.secondary];
   }, [porcentajeGastado, isDark, colors]);
 
-  // Combinar catEgreso con sus montos reales
-  const categoriaRows = catEgreso.map((cat) => {
-    const real = categoriasReal.find((r) => r.categoria_egreso_id === cat.id_local)?.total ?? 0;
-    return {
-      id: cat.id_local,
-      nombre: cat.nombre,
-      iconSource: ICON_MAP[cat.nombre],
-      presupuesto: 0,   // TODO: leer de presupuesto_categoria
-      real,
-    };
-  });
+  // Combinar catEgreso con sus montos reales (excluyendo Transferencias)
+  const categoriaRows = catEgreso
+    .filter((cat) => cat.nombre.trim().toLowerCase() !== 'transferencias')
+    .map((cat) => {
+      const real = categoriasReal.find((r) => r.categoria_egreso_id === cat.id_local)?.total ?? 0;
+      return {
+        id: cat.id_local,
+        nombre: cat.nombre,
+        iconSource: ICON_MAP[cat.nombre],
+        presupuesto: 0,   // TODO: leer de presupuesto_categoria
+        real,
+      };
+    });
 
   const handleLogout = () => {
     setShowMenu(false);

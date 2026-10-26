@@ -76,19 +76,31 @@ export function usePresupuesto(
       setDisponible(disp);
 
       // ── Categorías y su presupuesto guardado ─────────────────────────────
-      const [cats, presupuestos, reales] = await Promise.all([
+      const [allCats, presupuestos, reales] = await Promise.all([
         getCatEgresoByEspacio(db, espacioId),
         getPresupuestoByMes(db, mes, espacioId),
         getSumByCategoriaMes(db, mes, espacioId),
       ]);
 
-      const hasBudget = presupuestos.some((p) => p.monto_asignado > 0 || p.porcentaje_asignado > 0);
+      // Las transferencias son movimientos internos, no deben presupuestarse
+      const cats = allCats.filter(
+        (c) => c.nombre.trim().toLowerCase() !== 'transferencias'
+      );
+
+      const catTransferenciasId = allCats.find(
+        (c) => c.nombre.trim().toLowerCase() === 'transferencias'
+      )?.id_local;
+      const presupuestosValidos = presupuestos.filter(
+        (p) => p.categoria_egreso_id !== catTransferenciasId
+      );
+
+      const hasBudget = presupuestosValidos.some((p) => p.monto_asignado > 0 || p.porcentaje_asignado > 0);
       setHasExistingBudget(hasBudget);
 
       // Resumen del presupuesto actualmente guardado (para confirmación)
       const summary: BudgetSummaryItem[] = cats
         .map((cat) => {
-          const saved = presupuestos.find((p) => p.categoria_egreso_id === cat.id_local);
+          const saved = presupuestosValidos.find((p) => p.categoria_egreso_id === cat.id_local);
           if (!saved || (saved.monto_asignado <= 0 && saved.porcentaje_asignado <= 0)) return null;
           let monto = saved.monto_asignado;
           let pct = saved.porcentaje_asignado * 100;
@@ -108,7 +120,7 @@ export function usePresupuesto(
       setExistingBudgetSummary(summary);
 
       const built: BudgetRow[] = cats.map((cat) => {
-        const saved = presupuestos.find((p) => p.categoria_egreso_id === cat.id_local);
+        const saved = presupuestosValidos.find((p) => p.categoria_egreso_id === cat.id_local);
         let monto = 0;
         let pct = 0;
         if (saved) {

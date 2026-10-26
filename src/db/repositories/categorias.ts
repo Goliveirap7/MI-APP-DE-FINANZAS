@@ -408,9 +408,28 @@ export async function migrarTransaccionesSinCategoriaATransferencias(
     await _enqueue(db, 'transacciones', row.id_local, 'editar', { categoria_ingreso_id: ingresoId }, ts);
   }
 
-  if (egresosSinCat.length > 0 || ingresosSinCat.length > 0) {
+  // Limpiar cualquier presupuesto asignado a Transferencias (son movimientos internos)
+  const presupuestosTransferencias = await db.getAllAsync<{ id_local: string }>(
+    `SELECT id_local FROM presupuesto_categoria
+      WHERE espacio_id = ?
+        AND categoria_egreso_id = ?
+        AND eliminado = 0`,
+    [espacioId, egresoId],
+  );
+
+  for (const p of presupuestosTransferencias) {
+    await db.runAsync(
+      `UPDATE presupuesto_categoria
+          SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ?
+        WHERE id_local = ?`,
+      [ts, p.id_local],
+    );
+    await _enqueue(db, 'presupuesto_categoria', p.id_local, 'editar', { eliminado: 1 }, ts);
+  }
+
+  if (egresosSinCat.length > 0 || ingresosSinCat.length > 0 || presupuestosTransferencias.length > 0) {
     console.log(
-      `[DB Migración] Se migraron ${egresosSinCat.length} egresos y ${ingresosSinCat.length} ingresos sin categoría a 'Transferencias'`,
+      `[DB Migración] Se migraron ${egresosSinCat.length} egresos, ${ingresosSinCat.length} ingresos y se limpiaron ${presupuestosTransferencias.length} presupuestos de 'Transferencias'`,
     );
   }
 

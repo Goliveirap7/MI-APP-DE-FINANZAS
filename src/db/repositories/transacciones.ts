@@ -141,7 +141,7 @@ export async function getTransaccionesByMes(
   );
 }
 
-/** Suma de montos por tipo en un mes. */
+/** Suma de montos por tipo en un mes, excluyendo movimientos internos de transferencias. */
 export async function getSumByTipoMes(
   db: SQLiteDatabase,
   mes: string,
@@ -153,11 +153,17 @@ export async function getSumByTipoMes(
   const nextMes  = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-01`;
 
   const row = await db.getFirstAsync<{ total: number }>(
-    `SELECT COALESCE(SUM(monto_real), 0) AS total
-       FROM transacciones
-      WHERE espacio_id = ? AND tipo = ?
-        AND fecha >= ? AND fecha < ?
-        AND eliminado = 0`,
+    `SELECT COALESCE(SUM(t.monto_real), 0) AS total
+       FROM transacciones t
+      WHERE t.espacio_id = ? AND t.tipo = ?
+        AND t.fecha >= ? AND t.fecha < ?
+        AND t.eliminado = 0
+        AND (t.categoria_egreso_id IS NULL OR t.categoria_egreso_id NOT IN (
+          SELECT id_local FROM categorias_egreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
+        ))
+        AND (t.categoria_ingreso_id IS NULL OR t.categoria_ingreso_id NOT IN (
+          SELECT id_local FROM categorias_ingreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
+        ))`,
     [espacioId, tipo, mes, nextMes],
   );
   return row?.total ?? 0;
@@ -209,7 +215,7 @@ export async function getSaldoHistoricoHasta(
   return Math.max(row?.total ?? 0, 0);
 }
 
-/** Suma de montos por categoría de egreso en un mes (para barras de progreso). */
+/** Suma de montos por categoría de egreso en un mes (para barras de progreso), excluyendo transferencias. */
 export async function getSumByCategoriaMes(
   db: SQLiteDatabase,
   mes: string,
@@ -226,6 +232,9 @@ export async function getSumByCategoriaMes(
         AND fecha >= ? AND fecha < ?
         AND eliminado = 0
         AND categoria_egreso_id IS NOT NULL
+        AND categoria_egreso_id NOT IN (
+          SELECT id_local FROM categorias_egreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
+        )
       GROUP BY categoria_egreso_id`,
     [espacioId, mes, nextMes],
   );

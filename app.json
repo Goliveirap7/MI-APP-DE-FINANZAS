@@ -2,7 +2,7 @@
   "expo": {
     "name": "Aphelios",
     "slug": "app_finanzas",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.goliveira.appfinanzas",
-      "versionCode": 8,
+      "versionCode": 9,
       "softwareKeyboardLayoutMode": "pan",
       "splash": {
         "image": "./assets/logo.png",

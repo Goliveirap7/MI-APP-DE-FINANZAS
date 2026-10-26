@@ -19,7 +19,7 @@ export interface PresupuestoCatLocal {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-/** Todos los presupuestos de un mes. */
+/** Todos los presupuestos de un mes (excluyendo Transferencias). */
 export async function getPresupuestoByMes(
   db: SQLiteDatabase,
   mes: string,
@@ -28,7 +28,10 @@ export async function getPresupuestoByMes(
   return db.getAllAsync<PresupuestoCatLocal>(
     `SELECT id_local, espacio_id, mes, categoria_egreso_id, porcentaje_asignado, monto_asignado
        FROM presupuesto_categoria
-      WHERE espacio_id = ? AND mes = ? AND eliminado = 0`,
+      WHERE espacio_id = ? AND mes = ? AND eliminado = 0
+        AND categoria_egreso_id NOT IN (
+          SELECT id_local FROM categorias_egreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
+        )`,
     [espacioId, mes],
   );
 }
@@ -36,6 +39,7 @@ export async function getPresupuestoByMes(
 /**
  * Guarda (upsert) el presupuesto completo de un mes sin violar la restricción UNIQUE.
  * Reemplaza o actualiza todos los registros del mes en una transacción atómica.
+ * Excluye automáticamente cualquier categoría de movimiento interno como "Transferencias".
  *
  * @param items  Array de { categoria_egreso_id, porcentaje_asignado, monto_asignado }
  */
@@ -48,6 +52,13 @@ export async function upsertPresupuestoMes(
   const ts = new Date().toISOString();
 
   await db.withTransactionAsync(async () => {
+    // Excluir cualquier categoría de Transferencias por seguridad
+    const transferRow = await db.getFirstAsync<{ id_local: string }>(
+      `SELECT id_local FROM categorias_egreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'`,
+      [espacioId],
+    );
+    const validItems = items.filter((i) => i.categoria_egreso_id !== transferRow?.id_local);
+
     // Obtener registros existentes para este mes
     const existingRows = await db.getAllAsync<{ id_local: string; categoria_egreso_id: string }>(
       `SELECT id_local, categoria_egreso_id FROM presupuesto_categoria
@@ -56,10 +67,10 @@ export async function upsertPresupuestoMes(
     );
 
     const existingMap = new Map(existingRows.map((r) => [r.categoria_egreso_id, r.id_local]));
-    const incomingCatIds = new Set(items.map((i) => i.categoria_egreso_id));
+    const incomingCatIds = new Set(validItems.map((i) => i.categoria_egreso_id));
 
     // 1. Insertar o actualizar cada categoría entrante
-    for (const item of items) {
+    for (const item of validItems) {
       const existingId = existingMap.get(item.categoria_egreso_id);
 
       if (existingId) {

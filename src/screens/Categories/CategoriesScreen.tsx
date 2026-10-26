@@ -102,10 +102,12 @@ export default function CategoriesScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [egresos, ingresos] = await Promise.all([
+      const [allEgresos, allIngresos] = await Promise.all([
         getCatEgresoByEspacio(db),
         getCatIngresoByEspacio(db),
       ]);
+      const egresos = allEgresos.filter(c => c.nombre.trim().toLowerCase() !== 'transferencias');
+      const ingresos = allIngresos.filter(c => c.nombre.trim().toLowerCase() !== 'transferencias');
       setCatEgreso(egresos);
       setCatIngreso(ingresos);
 

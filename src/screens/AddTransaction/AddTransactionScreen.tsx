@@ -165,11 +165,15 @@ export default function AddTransactionScreen() {
     setConceptoId(null);
   };
 
-  // Convertir a CategoryOption para el picker
+  // Convertir a CategoryOption para el picker (excluyendo Transferencias)
   const cats: CategoryOption[] =
     tipo === 'ingreso'
-      ? catIngreso.map((c) => ({ id: c.id_local, nombre: c.nombre, emoji: EMOJI_INGRESO[c.nombre] ?? '💰' }))
-      : catEgreso.map((c)  => ({ id: c.id_local, nombre: c.nombre, emoji: EMOJI_EGRESO[c.nombre]  ?? '📁' }));
+      ? catIngreso
+          .filter((c) => c.nombre.trim().toLowerCase() !== 'transferencias')
+          .map((c) => ({ id: c.id_local, nombre: c.nombre, emoji: EMOJI_INGRESO[c.nombre] ?? '💰' }))
+      : catEgreso
+          .filter((c) => c.nombre.trim().toLowerCase() !== 'transferencias')
+          .map((c) => ({ id: c.id_local, nombre: c.nombre, emoji: EMOJI_EGRESO[c.nombre] ?? '📁' }));
 
   const accentColor = tipo === 'ingreso' ? colors.income : colors.expense;
   const montoNum    = parseFloat(monto) || 0;
