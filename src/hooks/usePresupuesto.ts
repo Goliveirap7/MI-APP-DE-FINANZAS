@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useDatabase } from '../db/database';
 import { getCatEgresoByEspacio, type CatEgreso } from '../db/repositories/categorias';
 import { getPresupuestoByMes, upsertPresupuestoMes } from '../db/repositories/presupuesto';
-import { getSumByTipoMes, getSumByCategoriaMes } from '../db/repositories/transacciones';
+import { getSumByTipoMes, getSumByCategoriaMes, getSaldoHistoricoHasta } from '../db/repositories/transacciones';
 import { DEFAULT_ESPACIO_ID } from '../db/seed';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -65,14 +65,10 @@ export function usePresupuesto(
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // ── Disponible del mes (saldo previo + ingresos) ──────────────────────
-      const prev      = mesPrevio(mes);
-      const prevIng   = await getSumByTipoMes(db, prev, 'ingreso',  espacioId);
-      const prevEgr   = await getSumByTipoMes(db, prev, 'egreso',   espacioId);
-      const saldoInicial = Math.max(prevIng - prevEgr, 0);
-
-      const ingMes    = await getSumByTipoMes(db, mes, 'ingreso', espacioId);
-      const disp      = saldoInicial + ingMes;
+      // ── Disponible del mes (saldo acumulado real + ingresos de este mes) ──
+      const saldoInicial = await getSaldoHistoricoHasta(db, mes, espacioId);
+      const ingMes       = await getSumByTipoMes(db, mes, 'ingreso', espacioId);
+      const disp         = Math.max(saldoInicial + ingMes, 0);
       setDisponible(disp);
 
       // ── Categorías y su presupuesto guardado ─────────────────────────────

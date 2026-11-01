@@ -117,12 +117,20 @@ export default function AnnualSummaryScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.heroCard}
           >
-            <Text style={styles.heroLabel}>Balance Neto Operativo</Text>
+            <Text style={styles.heroLabel}>
+              {balance >= 0 ? 'Ahorro Neto del Año' : 'Flujo Operativo del Año'}
+            </Text>
             <Text style={[
               styles.heroAmount, 
               { color: balance >= 0 ? colors.income : colors.expense }
             ]}>
               {balance >= 0 ? '+' : ''}{formatCurrency(balance)}
+            </Text>
+
+            <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: FontSize.xs, textAlign: 'center', marginTop: 4, marginBottom: 8, paddingHorizontal: Spacing.sm }}>
+              {balance >= 0 
+                ? `✨ Tus ingresos superaron tus gastos en ${formatCurrency(balance)} este año.`
+                : `Utilizaste ${formatCurrency(Math.abs(balance))} de tus ahorros previos para cubrir gastos este año.`}
             </Text>
 
             <View style={styles.heroDivider} />
