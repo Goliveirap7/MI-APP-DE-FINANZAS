@@ -382,6 +382,11 @@ export default function HomeScreen() {
                     <Text style={styles.menuItemText}>Categorías y Conceptos</Text>
                   </TouchableOpacity>
 
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); navigation.navigate('Simulator'); }}>
+                    <Text style={styles.menuItemIcon}>🎮</Text>
+                    <Text style={styles.menuItemText}>Simulador Financiero</Text>
+                  </TouchableOpacity>
+
                   <View style={styles.menuDivider} />
 
                   <TouchableOpacity style={styles.menuItem} onPress={toggleTheme}>
@@ -429,7 +434,7 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* ── HERO CARD: SALDO ACTUAL ─────────────────── */}
+          {/* ── HERO CARD: SALDO ACTUAL VIVO EN CUENTAS ─────────────────── */}
           {!loading && patrimonio && (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -441,11 +446,11 @@ export default function HomeScreen() {
                 end={{ x: 1, y: 1 }}
                 style={styles.heroCard}
               >
-                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>Saldo Disponible</Text>
+                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>Saldo Total en Cuentas</Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={[styles.heroAmount, { color: '#ffffff', width: 200 }]} numberOfLines={1} adjustsFontSizeToFit>
-                    {isBalanceHidden ? 'S/ *******' : formatCurrency(resumen?.diferencia ?? 0)}
+                  <Text style={[styles.heroAmount, { color: '#ffffff', width: 220 }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {isBalanceHidden ? 'S/ *******' : formatCurrency(patrimonio.disponible)}
                   </Text>
                   <TouchableOpacity onPress={toggleBalanceHidden} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                     <Image
@@ -457,14 +462,28 @@ export default function HomeScreen() {
                 </View>
 
                 <Text style={[styles.heroSubtext, { color: 'rgba(255,255,255,0.85)' }]}>
-                  En tu cartera virtual y billetera
+                  En tus bancos y efectivo
                 </Text>
 
-                {resumen && resumen.saldo_inicial > 0 && (
-                  <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                    <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
-                      ↑ {formatCurrency(resumen.saldo_inicial)} transferido de meses anteriores
-                    </Text>
+                {/* Badges: Superávit/Déficit del mes y arrastre histórico */}
+                {resumen && (
+                  <View style={{ marginTop: Spacing.sm, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    <View style={[
+                      styles.heroBadge, 
+                      { backgroundColor: resumen.diferencia >= 0 ? 'rgba(0, 200, 150, 0.25)' : 'rgba(255, 92, 92, 0.25)' }
+                    ]}>
+                      <Text style={[styles.heroBadgeText, { color: '#ffffff', fontWeight: FontWeight.bold }]}>
+                        {resumen.diferencia >= 0 ? '✨ Superávit mes: +' : '⚠️ Déficit mes: '}{formatCurrency(resumen.diferencia)}
+                      </Text>
+                    </View>
+
+                    {resumen.saldo_inicial > 0 && (
+                      <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+                        <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
+                          ↑ {formatCurrency(resumen.saldo_inicial)} de meses previos
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 )}
               </LinearGradient>

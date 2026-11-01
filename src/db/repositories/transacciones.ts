@@ -163,7 +163,8 @@ export async function getSumByTipoMes(
         ))
         AND (t.categoria_ingreso_id IS NULL OR t.categoria_ingreso_id NOT IN (
           SELECT id_local FROM categorias_ingreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
-        ))`,
+        ))
+        AND (t.nota IS NULL OR (t.nota NOT LIKE '%Reconciliación%' AND t.nota NOT LIKE '%Corrección de saldo%'))`,
     [espacioId, tipo, mes, nextMes],
   );
   return row?.total ?? 0;
@@ -235,6 +236,7 @@ export async function getSumByCategoriaMes(
         AND categoria_egreso_id NOT IN (
           SELECT id_local FROM categorias_egreso WHERE LOWER(TRIM(nombre)) = 'transferencias'
         )
+        AND (nota IS NULL OR (nota NOT LIKE '%Reconciliación%' AND nota NOT LIKE '%Corrección de saldo%'))
       GROUP BY categoria_egreso_id`,
     [espacioId, mes, nextMes],
   );

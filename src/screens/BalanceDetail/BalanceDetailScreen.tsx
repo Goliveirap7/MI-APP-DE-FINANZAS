@@ -44,6 +44,7 @@ export default function BalanceDetailScreen() {
   const [loadingHistorial, setLoadingHistorial] = useState(true);
 
   // Modals state
+  const [showAdjustWarning, setShowAdjustWarning] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [adjustWallet, setAdjustWallet] = useState('Alfin');
   const [adjustAmount, setAdjustAmount] = useState('');
@@ -108,7 +109,7 @@ export default function BalanceDetailScreen() {
         monto_real: absDiff,
         billetera: adjustWallet,
         metodo_pago: adjustWallet === 'Efectivo' ? 'efectivo' : 'virtual',
-        nota: 'Corrección de saldo',
+        nota: 'Reconciliación de saldo',
       } as any);
 
       new SyncEngine(db).pushToCloud();
@@ -238,7 +239,7 @@ export default function BalanceDetailScreen() {
             <Text style={styles.actionIcon}>🔄</Text>
             <Text style={styles.actionText}>Transferir</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => setShowAdjust(true)}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => { triggerSoftTap(); setShowAdjustWarning(true); }}>
             <Text style={styles.actionIcon}>⚖️</Text>
             <Text style={styles.actionText}>Ajustar Saldo</Text>
           </TouchableOpacity>
@@ -302,6 +303,47 @@ export default function BalanceDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* MODAL ADVERTENCIA ANTES DE AJUSTAR SALDO */}
+      <Modal visible={showAdjustWarning} transparent animationType="fade" onRequestClose={() => setShowAdjustWarning(false)}>
+        <View style={styles.modalBgCenter}>
+          <View style={styles.modalCardCenter}>
+            <Text style={styles.warningIcon}>💡</Text>
+            <Text style={styles.modalTitleCenter}>¿Olvidaste registrar algún movimiento?</Text>
+            <Text style={styles.modalSubCenter}>
+              Si detectas una diferencia en tu saldo porque olvidaste anotar un ingreso o egreso, te recomendamos registrarlo con su fecha respectiva para que tus estadísticas mensuales y presupuestos sean precisos.
+            </Text>
+            <Text style={[styles.modalSubCenter, { fontSize: FontSize.xs, color: colors.textMuted, marginTop: Spacing.xs }]}>
+              En caso de no recordar o no tener mapeado el motivo, puedes proceder con una reconciliación de saldo sin alterar tus gastos presupuestados del mes.
+            </Text>
+
+            <View style={styles.modalActionsCol}>
+              <TouchableOpacity
+                style={styles.modalBtnProceed}
+                activeOpacity={0.8}
+                onPress={() => {
+                  triggerSoftTap();
+                  setShowAdjustWarning(false);
+                  setShowAdjust(true);
+                }}
+              >
+                <Text style={styles.modalBtnTextProceed}>Proceder de todos modos</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalBtnCancelCenter}
+                activeOpacity={0.7}
+                onPress={() => {
+                  triggerSoftTap();
+                  setShowAdjustWarning(false);
+                }}
+              >
+                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* MODAL AJUSTE */}
       <Modal visible={showAdjust} transparent animationType="slide" onRequestClose={() => setShowAdjust(false)}>
@@ -518,4 +560,15 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   modalBtnConfirm: { flex: 1, paddingVertical: Spacing.md, borderRadius: Radius.md, backgroundColor: colors.primary, alignItems: 'center' },
   modalBtnTextCancel: { color: colors.textPrimary, fontSize: FontSize.md, fontWeight: FontWeight.semibold },
   modalBtnTextConfirm: { color: '#fff', fontSize: FontSize.md, fontWeight: FontWeight.semibold },
+
+  // Center warning modal
+  modalBgCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: Spacing.lg },
+  modalCardCenter: { backgroundColor: colors.bgCard, borderRadius: Radius.xl, padding: Spacing.xl, width: '100%', maxWidth: 400, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+  warningIcon: { fontSize: 36, marginBottom: Spacing.sm },
+  modalTitleCenter: { color: colors.textPrimary, fontSize: FontSize.lg, fontWeight: FontWeight.bold, textAlign: 'center', marginBottom: Spacing.sm },
+  modalSubCenter: { color: colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', lineHeight: 20 },
+  modalActionsCol: { width: '100%', marginTop: Spacing.xl, gap: Spacing.sm },
+  modalBtnProceed: { backgroundColor: colors.primary, paddingVertical: Spacing.md, borderRadius: Radius.md, alignItems: 'center', width: '100%' },
+  modalBtnTextProceed: { color: '#fff', fontSize: FontSize.md, fontWeight: FontWeight.bold },
+  modalBtnCancelCenter: { backgroundColor: colors.bgCardAlt, paddingVertical: Spacing.md, borderRadius: Radius.md, alignItems: 'center', width: '100%', borderWidth: 1, borderColor: colors.border },
 });
