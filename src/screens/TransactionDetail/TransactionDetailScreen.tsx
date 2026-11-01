@@ -9,16 +9,18 @@ import {
   TouchableOpacity,
   Platform,
   StatusBar,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';
-import { getTransaccionById, TransaccionLocal } from '../../db/repositories/transacciones';
+import { getTransaccionById, deleteTransaccion, TransaccionLocal } from '../../db/repositories/transacciones';
 import { formatCurrency } from '../../utils/format';
 import { useTheme } from '../../context/ThemeContext';
 import { useWalletConfig } from '../../hooks/useWalletConfig';
+import { SyncEngine } from '../../db/sync/SyncEngine';
 
 function formatDateLabel(iso: string): string {
   if (!iso) return '';
@@ -55,6 +57,50 @@ export default function TransactionDetailScreen() {
     setLoading(false);
   };
 
+  const isTransfer = !!(tx?.nota && (tx.nota.includes('Transferencia') || tx.nota.includes('[ref:')));
+  const isIngreso = tx?.tipo === 'ingreso';
+  const accentColor = isTransfer ? colors.primary : (isIngreso ? colors.income : colors.expense);
+
+  let transferOrigin = tx?.billetera || '';
+  let transferDest = '';
+  if (tx?.nota?.includes('Transferencia a ')) {
+    transferDest = tx.nota.replace(/Transferencia a /, '').replace(/\[ref:[^\]]+\]/, '').trim();
+  } else if (tx?.nota?.includes('Transferencia desde ')) {
+    transferOrigin = tx.nota.replace(/Transferencia desde /, '').replace(/\[ref:[^\]]+\]/, '').trim();
+    transferDest = tx.billetera;
+  }
+
+  const cleanNote = (tx?.nota || '').replace(/\[ref:[^\]]+\]/, '').trim();
+
+  const handleDelete = () => {
+    if (!tx) return;
+    triggerSoftTap();
+    Alert.alert(
+      isTransfer ? 'Eliminar transferencia' : 'Eliminar transacción',
+      isTransfer 
+        ? `¿Deseas revertir esta transferencia de S/ ${tx.monto_real.toFixed(2)}? Se actualizarán automáticamente los saldos de ambas cuentas.`
+        : `¿Deseas eliminar este registro de S/ ${tx.monto_real.toFixed(2)}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await deleteTransaccion(db, tx.id_local);
+              new SyncEngine(db).pushToCloud();
+              navigation.goBack();
+            } catch (e: any) {
+              Alert.alert('Error', e.message);
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -80,9 +126,6 @@ export default function TransactionDetailScreen() {
     );
   }
 
-  const isIngreso = tx.tipo === 'ingreso';
-  const accentColor = isIngreso ? colors.income : colors.expense;
-
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
@@ -90,47 +133,92 @@ export default function TransactionDetailScreen() {
         <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.goBack(); }} style={{ padding: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Image source={require('../../../assets/flechas/izquierda.png')} style={{ width: 12, height: 12, tintColor: colors.primary }} resizeMode="contain" /><Text style={{ color: colors.primary, fontSize: FontSize.md }}>Volver</Text></View>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Detalle</Text>
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('AddTransaction', { transaccionId: tx.id_local })}
-          style={{ padding: 10 }}
-        >
-          <Text style={{ color: colors.primary, fontSize: FontSize.md, fontWeight: 'bold' }}>Editar</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{isTransfer ? 'Transferencia' : 'Detalle'}</Text>
+        {isTransfer ? (
+          <TouchableOpacity onPress={handleDelete} style={{ padding: 10 }}>
+            <Text style={{ color: colors.expense, fontSize: FontSize.md, fontWeight: 'bold' }}>Borrar</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('AddTransaction', { transaccionId: tx.id_local })}
+            style={{ padding: 10 }}
+          >
+            <Text style={{ color: colors.primary, fontSize: FontSize.md, fontWeight: 'bold' }}>Editar</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         
         {/* Monto */}
         <View style={styles.amountContainer}>
+          {isTransfer && (
+            <View style={[styles.transferBadge, { backgroundColor: colors.primary + '20' }]}>
+              <Text style={[styles.transferBadgeText, { color: colors.primary }]}>🔄 Movimiento Interno</Text>
+            </View>
+          )}
           <Text style={[styles.amount, { color: accentColor }]}>
-            {isIngreso ? '+' : '-'}{formatCurrency(tx.monto_real)}
+            {isTransfer ? '' : (isIngreso ? '+' : '-')}{formatCurrency(tx.monto_real)}
           </Text>
           <Text style={styles.date}>{formatDateLabel(tx.fecha)}</Text>
         </View>
 
-        {/* Nota / Concepto */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Nota o Concepto</Text>
-          <Text style={styles.noteText}>
-            {tx.nota ? tx.nota : 'Sin detalles adicionales.'}
-          </Text>
-        </View>
+        {isTransfer ? (
+          <>
+            {/* Origen y Destino */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Cuenta Origen</Text>
+              <Text style={styles.noteText}>{getWalletLabel(transferOrigin) || 'Cuenta origen'}</Text>
+            </View>
 
-        {/* Cuenta / Billetera */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Cuenta / Billetera</Text>
-          <Text style={styles.noteText}>
-            {getWalletLabel(tx.billetera)} ({tx.metodo_pago === 'efectivo' ? 'Efectivo 💵' : 'Virtual 💳'})
-          </Text>
-        </View>
+            {transferDest ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Cuenta Destino</Text>
+                <Text style={styles.noteText}>{getWalletLabel(transferDest) || 'Cuenta destino'}</Text>
+              </View>
+            ) : null}
 
-        {/* Foto */}
-        {tx.foto_uri && (
-          <View style={styles.card}>
-             <Text style={styles.cardTitle}>Foto adjunta</Text>
-             <Image source={{ uri: tx.foto_uri }} style={styles.image} />
-          </View>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Información Contable</Text>
+              <Text style={[styles.noteText, { color: colors.textSecondary }]}>
+                Este movimiento traslada dinero entre tus propias cuentas sin registrar gasto ni ingreso operativo.
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.deleteBtn, { borderColor: colors.expense }]} 
+              activeOpacity={0.8}
+              onPress={handleDelete}
+            >
+              <Text style={[styles.deleteBtnText, { color: colors.expense }]}>🗑️ Revertir Transferencia</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {/* Nota / Concepto */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Nota o Concepto</Text>
+              <Text style={styles.noteText}>
+                {tx.nota ? tx.nota : 'Sin detalles adicionales.'}
+              </Text>
+            </View>
+
+            {/* Cuenta / Billetera */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Cuenta / Billetera</Text>
+              <Text style={styles.noteText}>
+                {getWalletLabel(tx.billetera)} ({tx.metodo_pago === 'efectivo' ? 'Efectivo 💵' : 'Virtual 💳'})
+              </Text>
+            </View>
+
+            {/* Foto */}
+            {tx.foto_uri && (
+              <View style={styles.card}>
+                 <Text style={styles.cardTitle}>Foto adjunta</Text>
+                 <Image source={{ uri: tx.foto_uri }} style={styles.image} />
+              </View>
+            )}
+          </>
         )}
 
       </ScrollView>
@@ -151,5 +239,9 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   card: { backgroundColor: colors.bgCard, borderRadius: Radius.lg, padding: Spacing.md, borderWidth: 1, borderColor: colors.border },
   cardTitle: { color: colors.textMuted, fontSize: FontSize.xs, fontWeight: FontWeight.bold, textTransform: 'uppercase', marginBottom: Spacing.sm },
   noteText: { color: colors.textPrimary, fontSize: FontSize.md, lineHeight: 22 },
-  image: { width: '100%', height: 300, borderRadius: Radius.md, resizeMode: 'cover', backgroundColor: '#000' }
+  image: { width: '100%', height: 300, borderRadius: Radius.md, resizeMode: 'cover', backgroundColor: '#000' },
+  transferBadge: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: Radius.full, marginBottom: Spacing.sm },
+  transferBadgeText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  deleteBtn: { backgroundColor: 'transparent', borderWidth: 1.5, borderRadius: Radius.md, paddingVertical: Spacing.md, alignItems: 'center', marginTop: Spacing.md },
+  deleteBtnText: { fontSize: FontSize.md, fontWeight: FontWeight.bold },
 });

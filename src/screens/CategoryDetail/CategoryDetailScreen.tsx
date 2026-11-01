@@ -95,11 +95,12 @@ export default function CategoryDetailScreen() {
     });
   }, [transacciones, searchQuery, tipo, getCategoryName]);
 
-  // Agrupar por nombre de categoría
+  // Agrupar por nombre de categoría (excluyendo transferencias)
   const grouped = useMemo(() => {
     return filteredTransacciones.reduce((acc, t) => {
       const catId = tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id;
       const catName = getCategoryName(catId);
+      if (catName.trim().toLowerCase() === 'transferencias') return acc;
       if (!acc[catName]) acc[catName] = [];
       acc[catName].push(t);
       return acc;

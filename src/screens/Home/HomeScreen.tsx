@@ -466,26 +466,39 @@ export default function HomeScreen() {
                 </Text>
 
                 {/* Badges: Superávit/Déficit del mes y arrastre histórico */}
-                {resumen && (
-                  <View style={{ marginTop: Spacing.sm, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                    <View style={[
-                      styles.heroBadge, 
-                      { backgroundColor: resumen.diferencia >= 0 ? 'rgba(0, 200, 150, 0.25)' : 'rgba(255, 92, 92, 0.25)' }
-                    ]}>
-                      <Text style={[styles.heroBadgeText, { color: '#ffffff', fontWeight: FontWeight.bold }]}>
-                        {resumen.diferencia >= 0 ? '✨ Superávit mes: +' : '⚠️ Déficit mes: '}{formatCurrency(resumen.diferencia)}
-                      </Text>
-                    </View>
+                {resumen && (() => {
+                  const flujoMes = (resumen.ingresos_totales || 0) - (resumen.egresos_totales || 0);
+                  const isPositive = flujoMes > 0;
+                  const isNegative = flujoMes < 0;
+                  const badgeBg = isPositive 
+                    ? 'rgba(0, 200, 150, 0.25)' 
+                    : isNegative 
+                      ? 'rgba(255, 92, 92, 0.25)' 
+                      : 'rgba(255, 255, 255, 0.18)';
+                  const badgeText = isPositive
+                    ? `✨ Superávit mes: +${formatCurrency(flujoMes)}`
+                    : isNegative
+                      ? `⚠️ Déficit mes: ${formatCurrency(flujoMes)}`
+                      : `⚖️ Flujo mes: ${formatCurrency(0)}`;
 
-                    {resumen.saldo_inicial > 0 && (
-                      <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
-                        <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
-                          ↑ {formatCurrency(resumen.saldo_inicial)} de meses previos
+                  return (
+                    <View style={{ marginTop: Spacing.sm, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      <View style={[styles.heroBadge, { backgroundColor: badgeBg }]}>
+                        <Text style={[styles.heroBadgeText, { color: '#ffffff', fontWeight: FontWeight.bold }]}>
+                          {badgeText}
                         </Text>
                       </View>
-                    )}
-                  </View>
-                )}
+
+                      {resumen.saldo_inicial > 0 && (
+                        <View style={[styles.heroBadge, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+                          <Text style={[styles.heroBadgeText, { color: '#ffffff' }]}>
+                            ↑ {formatCurrency(resumen.saldo_inicial)} de meses previos
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
               </LinearGradient>
             </TouchableOpacity>
           )}

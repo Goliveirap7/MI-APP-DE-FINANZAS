@@ -103,12 +103,20 @@ export async function insertTransaccion(
   return id;
 }
 
-/** Soft-delete: marca eliminado=1 y encola para sync. */
+/** Soft-delete: marca eliminado=1 y encola para sync. Si es transferencia, borra también la transacción hermana. */
 export async function deleteTransaccion(
   db: SQLiteDatabase,
   idLocal: string,
 ): Promise<void> {
   const ts = new Date().toISOString();
+  
+  // 1. Obtener la transacción a borrar para ver si es una transferencia
+  const tx = await db.getFirstAsync<TransaccionLocal>(
+    `SELECT * FROM transacciones WHERE id_local = ?`,
+    [idLocal]
+  );
+
+  // 2. Marcar la transacción actual como eliminada
   await db.runAsync(
     `UPDATE transacciones
         SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ?
@@ -116,6 +124,70 @@ export async function deleteTransaccion(
     [ts, idLocal],
   );
   await _enqueue(db, 'transacciones', idLocal, 'eliminar', {}, ts);
+
+  if (!tx || !tx.nota) return;
+
+  // 3. Buscar transacción gemela si es transferencia
+  // Caso A: Tiene tag [ref:xyz]
+  const refMatch = tx.nota.match(/\[ref:([^\]]+)\]/);
+  if (refMatch && refMatch[1]) {
+    const refTag = `[ref:${refMatch[1]}]`;
+    const siblings = await db.getAllAsync<TransaccionLocal>(
+      `SELECT * FROM transacciones WHERE nota LIKE ? AND id_local != ? AND eliminado = 0`,
+      [`%${refTag}%`, idLocal]
+    );
+    for (const sib of siblings) {
+      await db.runAsync(
+        `UPDATE transacciones SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ? WHERE id_local = ?`,
+        [ts, sib.id_local]
+      );
+      await _enqueue(db, 'transacciones', sib.id_local, 'eliminar', {}, ts);
+    }
+    return;
+  }
+
+  // Caso B: Transferencia antigua sin [ref] (emparejar por nota, fecha, monto)
+  if (tx.nota.startsWith('Transferencia a ')) {
+    const dest = tx.nota.replace('Transferencia a ', '').trim();
+    const sibling = await db.getFirstAsync<TransaccionLocal>(
+      `SELECT * FROM transacciones 
+        WHERE fecha = ? 
+          AND monto_real = ? 
+          AND billetera = ? 
+          AND (nota LIKE 'Transferencia desde%' OR nota LIKE '%Transferencia%')
+          AND id_local != ? 
+          AND eliminado = 0
+        LIMIT 1`,
+      [tx.fecha, tx.monto_real, dest, idLocal]
+    );
+    if (sibling) {
+      await db.runAsync(
+        `UPDATE transacciones SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ? WHERE id_local = ?`,
+        [ts, sibling.id_local]
+      );
+      await _enqueue(db, 'transacciones', sibling.id_local, 'eliminar', {}, ts);
+    }
+  } else if (tx.nota.startsWith('Transferencia desde ')) {
+    const origin = tx.nota.replace('Transferencia desde ', '').trim();
+    const sibling = await db.getFirstAsync<TransaccionLocal>(
+      `SELECT * FROM transacciones 
+        WHERE fecha = ? 
+          AND monto_real = ? 
+          AND billetera = origin 
+          AND (nota LIKE 'Transferencia a%' OR nota LIKE '%Transferencia%')
+          AND id_local != ? 
+          AND eliminado = 0
+        LIMIT 1`,
+      [tx.fecha, tx.monto_real, origin, idLocal]
+    );
+    if (sibling) {
+      await db.runAsync(
+        `UPDATE transacciones SET eliminado = 1, estado_sync = 'pendiente', fecha_modificacion = ? WHERE id_local = ?`,
+        [ts, sibling.id_local]
+      );
+      await _enqueue(db, 'transacciones', sibling.id_local, 'eliminar', {}, ts);
+    }
+  }
 }
 
 /** Transacciones de un mes (YYYY-MM-DD range), sin eliminados. */
@@ -278,7 +350,7 @@ export async function updateTransaccion(
   await _enqueue(db, 'transacciones', idLocal, 'editar', data, ts);
 }
 
-/** Obtiene transacciones de un mes, filtrando opcionalmente por tipo y/o categoría */
+/** Obtiene transacciones de un mes, filtrando opcionalmente por tipo y/o categoría, excluyendo transferencias internas y reconciliaciones por defecto */
 export async function getTransaccionesDetalle(
   db: SQLiteDatabase,
   mes: string,
@@ -311,6 +383,22 @@ export async function getTransaccionesDetalle(
       query += ` AND categoria_egreso_id = ?`;
     }
     params.push(categoriaId);
+  } else {
+    // Si no se pide una categoría específica, excluir movimientos internos y reconciliaciones
+    query += `
+      AND (
+        categoria_egreso_id NOT IN (
+          SELECT id_local FROM categorias_egreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'
+        ) OR categoria_egreso_id IS NULL
+      )
+      AND (
+        categoria_ingreso_id NOT IN (
+          SELECT id_local FROM categorias_ingreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'
+        ) OR categoria_ingreso_id IS NULL
+      )
+      AND (nota IS NULL OR (nota NOT LIKE '%Reconciliación%' AND nota NOT LIKE '%Corrección de saldo%'))
+    `;
+    params.push(espacioId, espacioId);
   }
 
   query += ` ORDER BY fecha DESC, rowid DESC`;
@@ -318,7 +406,7 @@ export async function getTransaccionesDetalle(
   return db.getAllAsync<TransaccionLocal>(query, params);
 }
 
-/** Obtiene el historial histórico de transacciones (ingresos por defecto) */
+/** Obtiene el historial histórico de transacciones (ingresos por defecto), excluyendo transferencias */
 export async function getHistorial(
   db: SQLiteDatabase,
   tipo: 'ingreso' | 'egreso',
@@ -331,9 +419,45 @@ export async function getHistorial(
       WHERE espacio_id = ?
         AND tipo = ?
         AND eliminado = 0
+        AND (
+          categoria_ingreso_id NOT IN (
+            SELECT id_local FROM categorias_ingreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'
+          ) OR categoria_ingreso_id IS NULL
+        )
+        AND (
+          categoria_egreso_id NOT IN (
+            SELECT id_local FROM categorias_egreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'
+          ) OR categoria_egreso_id IS NULL
+        )
+        AND (nota IS NULL OR (nota NOT LIKE '%Reconciliación%' AND nota NOT LIKE '%Corrección de saldo%'))
       ORDER BY fecha DESC, rowid DESC
       LIMIT ?`,
-    [espacioId, tipo, limit]
+    [espacioId, tipo, espacioId, espacioId, limit]
+  );
+}
+
+/** Obtiene el historial exclusivo de transferencias entre cuentas */
+export async function getHistorialTransferencias(
+  db: SQLiteDatabase,
+  espacioId = DEFAULT_ESPACIO_ID,
+  limit = 50
+): Promise<TransaccionLocal[]> {
+  return db.getAllAsync<TransaccionLocal>(
+    `SELECT *
+       FROM transacciones
+      WHERE espacio_id = ?
+        AND tipo = 'egreso'
+        AND (
+          categoria_egreso_id IN (
+            SELECT id_local FROM categorias_egreso WHERE espacio_id = ? AND LOWER(TRIM(nombre)) = 'transferencias'
+          )
+          OR nota LIKE 'Transferencia a %'
+          OR nota LIKE '%[ref:%'
+        )
+        AND eliminado = 0
+      ORDER BY fecha DESC, rowid DESC
+      LIMIT ?`,
+    [espacioId, espacioId, limit]
   );
 }
 

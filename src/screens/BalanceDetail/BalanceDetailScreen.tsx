@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../constants/theme';
 import { useDatabase } from '../../db/database';
-import { getHistorial, insertTransaccion, type TransaccionLocal } from '../../db/repositories/transacciones';
+import { getHistorial, getHistorialTransferencias, insertTransaccion, type TransaccionLocal } from '../../db/repositories/transacciones';
 import { getOrCreateCategoriaTransferencias } from '../../db/repositories/categorias';
 import { useResumenMensual } from '../../hooks/useResumenMensual';
 import { formatCurrency, formatDateMedium } from '../../utils/format';
@@ -42,6 +42,7 @@ export default function BalanceDetailScreen() {
 
   const [historial, setHistorial] = useState<TransaccionLocal[]>([]);
   const [loadingHistorial, setLoadingHistorial] = useState(true);
+  const [historyTab, setHistoryTab] = useState<'ingresos' | 'transferencias'>('ingresos');
 
   // Modals state
   const [showAdjustWarning, setShowAdjustWarning] = useState(false);
@@ -64,14 +65,16 @@ export default function BalanceDetailScreen() {
   const loadHistory = React.useCallback(async () => {
     setLoadingHistorial(true);
     try {
-      const data = await getHistorial(db, 'ingreso', undefined, 50);
+      const data = historyTab === 'transferencias'
+        ? await getHistorialTransferencias(db, undefined, 50)
+        : await getHistorial(db, 'ingreso', undefined, 50);
       setHistorial(data);
     } catch (e) {
       console.error(e);
     } finally {
       setLoadingHistorial(false);
     }
-  }, [db]);
+  }, [db, historyTab]);
 
   useEffect(() => {
     loadHistory();
@@ -131,13 +134,14 @@ export default function BalanceDetailScreen() {
     if (transferOrigin === transferDest) return Alert.alert('Error', 'Las billeteras deben ser diferentes.');
 
     const originBalance = patrimonio?.billeteras_detalle?.[transferOrigin] || 0;
-    if (amount > originBalance) {
+    if (Math.round(amount * 100) > Math.round(originBalance * 100)) {
       return Alert.alert('Saldo insuficiente', `Solo tienes S/ ${originBalance.toFixed(2)} en ${transferOrigin}.`);
     }
     
     setSaving(true);
     try {
       const date = new Date().toISOString().split('T')[0];
+      const transferGroupId = `trf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const { egresoId, ingresoId } = await getOrCreateCategoriaTransferencias(db);
       
       // Egreso de origen
@@ -148,7 +152,7 @@ export default function BalanceDetailScreen() {
         billetera: transferOrigin,
         metodo_pago: transferOrigin === 'Efectivo' ? 'efectivo' : 'virtual',
         categoria_egreso_id: egresoId,
-        nota: `Transferencia a ${transferDest}`,
+        nota: `Transferencia a ${transferDest} [ref:${transferGroupId}]`,
       } as any);
 
       // Ingreso a destino
@@ -159,7 +163,7 @@ export default function BalanceDetailScreen() {
         billetera: transferDest,
         metodo_pago: transferDest === 'Efectivo' ? 'efectivo' : 'virtual',
         categoria_ingreso_id: ingresoId,
-        nota: `Transferencia desde ${transferOrigin}`,
+        nota: `Transferencia desde ${transferOrigin} [ref:${transferGroupId}]`,
       } as any);
 
       new SyncEngine(db).pushToCloud();
@@ -265,40 +269,87 @@ export default function BalanceDetailScreen() {
 
         {/* HISTORIAL */}
         <View style={[styles.historySection, { marginTop: Spacing.xl }]}>
-          <Text style={styles.sectionTitle}>Historial de Ingresos</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md }}>
+            <View style={{ flexDirection: 'row', backgroundColor: colors.bgCard, borderRadius: Radius.full, padding: 3, borderWidth: 1, borderColor: colors.border }}>
+              <TouchableOpacity
+                onPress={() => { triggerSoftTap(); setHistoryTab('ingresos'); }}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 6,
+                  borderRadius: Radius.full,
+                  backgroundColor: historyTab === 'ingresos' ? colors.primary : 'transparent',
+                }}
+              >
+                <Text style={{
+                  color: historyTab === 'ingresos' ? '#ffffff' : colors.textSecondary,
+                  fontSize: FontSize.sm,
+                  fontWeight: FontWeight.semibold
+                }}>
+                  💰 Ingresos
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { triggerSoftTap(); setHistoryTab('transferencias'); }}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 6,
+                  borderRadius: Radius.full,
+                  backgroundColor: historyTab === 'transferencias' ? colors.primary : 'transparent',
+                }}
+              >
+                <Text style={{
+                  color: historyTab === 'transferencias' ? '#ffffff' : colors.textSecondary,
+                  fontSize: FontSize.sm,
+                  fontWeight: FontWeight.semibold
+                }}>
+                  🔄 Transferencias
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           
           {loadingHistorial ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: Spacing.xl }} />
           ) : historial.length > 0 ? (
             <View style={styles.listContainer}>
-              {historial.map((tx, idx) => (
-                <View key={tx.id_local}>
-                  <TouchableOpacity 
-                    style={styles.txRow}
-                    activeOpacity={0.7}
-                    onPress={() => navigation.navigate('TransactionDetail', { transaccionId: tx.id_local })}
-                  >
-                    <View style={styles.txIconWrapper}>
-                      <Text style={styles.txIcon}>
-                        {tx.metodo_pago === 'efectivo' ? '💵' : '💳'}
-                      </Text>
-                    </View>
-                    <View style={styles.txInfo}>
-                      <Text style={styles.txCat}>{getCatName(tx.categoria_ingreso_id)}</Text>
-                      <Text style={styles.txDate}>{formatDateMedium(tx.fecha)}</Text>
-                    </View>
-                    <View style={styles.txRight}>
-                      <Text style={styles.txAmount}>+{formatCurrency(tx.monto_real)}</Text>
-                      <Text style={styles.txMethod}>{getWalletLabel(tx.billetera)}</Text>
-                    </View>
-                  </TouchableOpacity>
-                  {idx < historial.length - 1 && <View style={styles.divider} />}
-                </View>
-              ))}
+              {historial.map((tx, idx) => {
+                const isTransfer = historyTab === 'transferencias';
+                const cleanNote = (tx.nota || '').replace(/\[ref:[^\]]+\]/, '').trim();
+                return (
+                  <View key={tx.id_local}>
+                    <TouchableOpacity 
+                      style={styles.txRow}
+                      activeOpacity={0.7}
+                      onPress={() => navigation.navigate('TransactionDetail', { transaccionId: tx.id_local })}
+                    >
+                      <View style={[styles.txIconWrapper, isTransfer && { backgroundColor: 'rgba(0, 210, 180, 0.15)' }]}>
+                        <Text style={styles.txIcon}>
+                          {isTransfer ? '🔄' : (tx.metodo_pago === 'efectivo' ? '💵' : '💳')}
+                        </Text>
+                      </View>
+                      <View style={styles.txInfo}>
+                        <Text style={styles.txCat}>
+                          {isTransfer ? (cleanNote || 'Transferencia entre cuentas') : getCatName(tx.categoria_ingreso_id)}
+                        </Text>
+                        <Text style={styles.txDate}>{formatDateMedium(tx.fecha)}</Text>
+                      </View>
+                      <View style={styles.txRight}>
+                        <Text style={[styles.txAmount, isTransfer && { color: colors.primary }]}>
+                          {isTransfer ? '' : '+'}{formatCurrency(tx.monto_real)}
+                        </Text>
+                        <Text style={styles.txMethod}>{getWalletLabel(tx.billetera)}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {idx < historial.length - 1 && <View style={styles.divider} />}
+                  </View>
+                );
+              })}
             </View>
           ) : (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Aún no hay ingresos registrados.</Text>
+              <Text style={styles.emptyText}>
+                {historyTab === 'ingresos' ? 'Aún no hay ingresos registrados.' : 'Aún no hay transferencias registradas.'}
+              </Text>
             </View>
           )}
         </View>
