@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -50,6 +51,39 @@ export default function SimulatorScreen() {
 
   // Lista de movimientos simulados
   const [items, setItems] = useState<SimulatedItem[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Cargar borrador persistido desde AsyncStorage
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('@aphelios_simulator_draft');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.baseBalance !== undefined) setBaseBalance(parsed.baseBalance);
+          if (Array.isArray(parsed.items)) setItems(parsed.items);
+        }
+      } catch (e) {
+        console.warn('[SimulatorScreen] Error leyendo borrador local:', e);
+      } finally {
+        setIsLoaded(true);
+      }
+    })();
+  }, []);
+
+  // Guardar automáticamente cambios en AsyncStorage
+  useEffect(() => {
+    if (!isLoaded) return;
+    try {
+      if (baseBalance === null && items.length === 0) {
+        AsyncStorage.removeItem('@aphelios_simulator_draft');
+      } else {
+        AsyncStorage.setItem('@aphelios_simulator_draft', JSON.stringify({ baseBalance, items }));
+      }
+    } catch (e) {
+      console.warn('[SimulatorScreen] Error persistiendo borrador:', e);
+    }
+  }, [baseBalance, items, isLoaded]);
 
   // Cálculos proyectados
   const totalSimIngresos = useMemo(() => {
@@ -103,13 +137,16 @@ export default function SimulatorScreen() {
         {
           text: 'Reiniciar',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             setItems([]);
             setBaseBalance(null);
             setIsEditingBase(false);
             setCustomBaseText('');
             setMontoText('');
             setDescText('');
+            try {
+              await AsyncStorage.removeItem('@aphelios_simulator_draft');
+            } catch (e) {}
           },
         },
       ]

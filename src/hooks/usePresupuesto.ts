@@ -2,7 +2,8 @@
  * usePresupuesto — carga y combina presupuesto + gasto real + disponible
  * para armar la vista completa de la pantalla de Presupuesto del mes.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDatabase } from '../db/database';
 import { getCatEgresoByEspacio, type CatEgreso } from '../db/repositories/categorias';
 import { getPresupuestoByMes, upsertPresupuestoMes } from '../db/repositories/presupuesto';
@@ -34,9 +35,11 @@ export interface UsePresupuesto {
   saving:       boolean;
   hasExistingBudget: boolean;
   existingBudgetSummary: BudgetSummaryItem[];
+  hasDraft:     boolean;
   updatePct:    (catId: string, nuevoPct: number) => void;
   updateMonto:  (catId: string, nuevoMonto: number) => void;
   guardar:      () => Promise<void>;
+  discardDraft: () => Promise<void>;
   refetch:      () => void;
 }
 
@@ -46,6 +49,9 @@ function mesPrevio(mes: string): string {
   const d = new Date(y, m - 2, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
+
+// ── Helper clave borrador ─────────────────────────────────────────────────────
+const getBudgetDraftKey = (espacioId: string, mes: string) => `@aphelios_budget_draft_${espacioId}_${mes}`;
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -59,6 +65,7 @@ export function usePresupuesto(
   const [rows, setRows]             = useState<BudgetRow[]>([]);
   const [hasExistingBudget, setHasExistingBudget] = useState(false);
   const [existingBudgetSummary, setExistingBudgetSummary] = useState<BudgetSummaryItem[]>([]);
+  const [hasDraft, setHasDraft]     = useState(false);
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
 
@@ -115,7 +122,7 @@ export function usePresupuesto(
 
       setExistingBudgetSummary(summary);
 
-      const built: BudgetRow[] = cats.map((cat) => {
+      let built: BudgetRow[] = cats.map((cat) => {
         const saved = presupuestosValidos.find((p) => p.categoria_egreso_id === cat.id_local);
         let monto = 0;
         let pct = 0;
@@ -140,6 +147,33 @@ export function usePresupuesto(
         };
       });
 
+      // Revisar si existe un borrador sin guardar en almacenamiento local
+      try {
+        const draftRaw = await AsyncStorage.getItem(getBudgetDraftKey(espacioId, mes));
+        if (draftRaw) {
+          const draftMap: Record<string, { porcentaje: number; monto_presupuesto: number }> = JSON.parse(draftRaw);
+          let appliedDraft = false;
+          built = built.map((row) => {
+            const entry = draftMap[row.categoria.id_local];
+            if (entry) {
+              appliedDraft = true;
+              return {
+                ...row,
+                porcentaje:        entry.porcentaje,
+                monto_presupuesto: entry.monto_presupuesto,
+                diferencia:        entry.monto_presupuesto - row.monto_real,
+              };
+            }
+            return row;
+          });
+          setHasDraft(appliedDraft);
+        } else {
+          setHasDraft(false);
+        }
+      } catch (e) {
+        console.warn('[usePresupuesto] Error cargando borrador local:', e);
+      }
+
       setRows(built);
     } finally {
       setLoading(false);
@@ -148,10 +182,27 @@ export function usePresupuesto(
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Actualizar % localmente (sin guardar todavía) ─────────────────────────
+  // Guardar borrador en AsyncStorage
+  const persistDraft = useCallback((updatedRows: BudgetRow[]) => {
+    try {
+      const draftMap: Record<string, { porcentaje: number; monto_presupuesto: number }> = {};
+      updatedRows.forEach((r) => {
+        draftMap[r.categoria.id_local] = {
+          porcentaje: r.porcentaje,
+          monto_presupuesto: r.monto_presupuesto,
+        };
+      });
+      AsyncStorage.setItem(getBudgetDraftKey(espacioId, mes), JSON.stringify(draftMap));
+      setHasDraft(true);
+    } catch (e) {
+      console.warn('[usePresupuesto] Error guardando borrador:', e);
+    }
+  }, [espacioId, mes]);
+
+  // ── Actualizar % localmente (guardando borrador) ─────────────────────────
   const updatePct = useCallback((catId: string, nuevoPct: number) => {
-    setRows((prev) =>
-      prev.map((r) => {
+    setRows((prev) => {
+      const next = prev.map((r) => {
         if (r.categoria.id_local !== catId) return r;
         const pct   = Math.max(0, Math.min(100, nuevoPct));
         const monto = Number(((pct / 100) * disponible).toFixed(2));
@@ -161,13 +212,15 @@ export function usePresupuesto(
           monto_presupuesto: monto,
           diferencia:        monto - r.monto_real,
         };
-      }),
-    );
-  }, [disponible]);
+      });
+      persistDraft(next);
+      return next;
+    });
+  }, [disponible, persistDraft]);
 
   const updateMonto = useCallback((catId: string, nuevoMonto: number) => {
-    setRows((prev) =>
-      prev.map((r) => {
+    setRows((prev) => {
+      const next = prev.map((r) => {
         if (r.categoria.id_local !== catId) return r;
         const monto = Math.max(0, nuevoMonto);
         const pct = disponible > 0 ? Number(((monto / disponible) * 100).toFixed(1)) : 0;
@@ -177,9 +230,11 @@ export function usePresupuesto(
           monto_presupuesto: monto,
           diferencia:        monto - r.monto_real,
         };
-      }),
-    );
-  }, [disponible]);
+      });
+      persistDraft(next);
+      return next;
+    });
+  }, [disponible, persistDraft]);
 
   const totalPct = rows.reduce((s, r) => s + r.porcentaje, 0);
   const totalMonto = rows.reduce((s, r) => s + r.monto_presupuesto, 0);
@@ -202,10 +257,24 @@ export function usePresupuesto(
         })),
         espacioId,
       );
+      // Limpiar borrador al guardar exitosamente
+      await AsyncStorage.removeItem(getBudgetDraftKey(espacioId, mes));
+      setHasDraft(false);
     } finally {
       setSaving(false);
     }
   }, [db, mes, rows, totalMonto, disponible, espacioId]);
+
+  // ── Descartar borrador y restaurar lo guardado en BD ─────────────────────
+  const discardDraft = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(getBudgetDraftKey(espacioId, mes));
+      setHasDraft(false);
+      await load();
+    } catch (e) {
+      console.warn('[usePresupuesto] Error descartando borrador:', e);
+    }
+  }, [espacioId, mes, load]);
 
   return {
     disponible,
@@ -216,9 +285,11 @@ export function usePresupuesto(
     saving,
     hasExistingBudget,
     existingBudgetSummary,
+    hasDraft,
     updatePct,
     updateMonto,
     guardar,
+    discardDraft,
     refetch: load,
   };
 }

@@ -76,9 +76,11 @@ export default function BudgetScreen() {
     saving,
     hasExistingBudget,
     existingBudgetSummary,
+    hasDraft,
     updatePct,
     updateMonto,
     guardar,
+    discardDraft,
     refetch,
   } = usePresupuesto(mes);
 
@@ -143,6 +145,43 @@ export default function BudgetScreen() {
 
         {/* ── SELECTOR DE MES ───────────────────────── */}
         <MonthSelector mes={mes} onChange={setMes} />
+
+        {/* ── AVISO DE BORRADOR GUARDADO EN STORAGE ─── */}
+        {hasDraft && !loading && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'rgba(255, 176, 32, 0.15)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 176, 32, 0.4)',
+            borderRadius: Radius.md,
+            paddingHorizontal: Spacing.md,
+            paddingVertical: Spacing.sm,
+            marginVertical: Spacing.xs,
+          }}>
+            <Text style={{ color: colors.warning, fontSize: FontSize.xs, fontWeight: FontWeight.semibold }}>
+              📝 Cambios guardados en borrador
+            </Text>
+            <TouchableOpacity 
+              onPress={() => {
+                triggerSoftTap();
+                Alert.alert(
+                  'Descartar borrador',
+                  '¿Deseas restablecer las categorías al presupuesto guardado anteriormente?',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Restablecer', style: 'destructive', onPress: discardDraft }
+                  ]
+                );
+              }}
+            >
+              <Text style={{ color: colors.textSecondary, fontSize: FontSize.xs, textDecorationLine: 'underline' }}>
+                Restablecer
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── LOADING ───────────────────────────────── */}
         {loading && (
