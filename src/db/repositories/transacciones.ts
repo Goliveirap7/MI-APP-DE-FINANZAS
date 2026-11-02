@@ -314,6 +314,45 @@ export async function getSumByCategoriaMes(
   );
 }
 
+/** Suma de montos por concepto de egreso en un mes (para desglose de presupuestos y conceptos). */
+export async function getSumByConceptoMes(
+  db: SQLiteDatabase,
+  mes: string,
+  categoriaEgresoId?: string,
+  espacioId = DEFAULT_ESPACIO_ID,
+): Promise<{ concepto_detalle_id: string; total: number }[]> {
+  const [y, m] = mes.split('-').map(Number);
+  const nextDate = new Date(y, m, 1);
+  const nextMes  = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-01`;
+
+  if (categoriaEgresoId) {
+    return db.getAllAsync(
+      `SELECT concepto_detalle_id, COALESCE(SUM(monto_real), 0) AS total
+         FROM transacciones
+        WHERE espacio_id = ? AND tipo = 'egreso'
+          AND categoria_egreso_id = ?
+          AND fecha >= ? AND fecha < ?
+          AND eliminado = 0
+          AND concepto_detalle_id IS NOT NULL
+          AND (nota IS NULL OR (nota NOT LIKE '%Reconciliación%' AND nota NOT LIKE '%Corrección de saldo%'))
+        GROUP BY concepto_detalle_id`,
+      [espacioId, categoriaEgresoId, mes, nextMes],
+    );
+  }
+
+  return db.getAllAsync(
+    `SELECT concepto_detalle_id, COALESCE(SUM(monto_real), 0) AS total
+       FROM transacciones
+      WHERE espacio_id = ? AND tipo = 'egreso'
+        AND fecha >= ? AND fecha < ?
+        AND eliminado = 0
+        AND concepto_detalle_id IS NOT NULL
+        AND (nota IS NULL OR (nota NOT LIKE '%Reconciliación%' AND nota NOT LIKE '%Corrección de saldo%'))
+      GROUP BY concepto_detalle_id`,
+    [espacioId, mes, nextMes],
+  );
+}
+
 /** Obtiene una transacción por su ID (para edición) */
 export async function getTransaccionById(
   db: SQLiteDatabase,

@@ -17,9 +17,18 @@ export interface PresupuestoCatLocal {
   monto_asignado: number;        // Monto fijo tope
 }
 
+export interface PresupuestoConceptoLocal {
+  id_local: string;
+  espacio_id: string;
+  mes: string;                   // 'YYYY-MM-01'
+  categoria_egreso_id: string;
+  concepto_detalle_id: string;
+  monto_asignado: number;        // Monto asignado al concepto
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-/** Todos los presupuestos de un mes (excluyendo Transferencias). */
+/** Todos los presupuestos de categoría de un mes (excluyendo Transferencias). */
 export async function getPresupuestoByMes(
   db: SQLiteDatabase,
   mes: string,
@@ -36,17 +45,48 @@ export async function getPresupuestoByMes(
   );
 }
 
+/** Todos los presupuestos de conceptos de un mes. */
+export async function getPresupuestoConceptosByMes(
+  db: SQLiteDatabase,
+  mes: string,
+  espacioId = DEFAULT_ESPACIO_ID,
+): Promise<PresupuestoConceptoLocal[]> {
+  return db.getAllAsync<PresupuestoConceptoLocal>(
+    `SELECT id_local, espacio_id, mes, categoria_egreso_id, concepto_detalle_id, monto_asignado
+       FROM presupuesto_concepto
+      WHERE espacio_id = ? AND mes = ? AND eliminado = 0`,
+    [espacioId, mes],
+  );
+}
+
+/** Presupuesto de conceptos para una categoría específica en un mes. */
+export async function getPresupuestoConceptosByCategoria(
+  db: SQLiteDatabase,
+  mes: string,
+  categoriaEgresoId: string,
+  espacioId = DEFAULT_ESPACIO_ID,
+): Promise<PresupuestoConceptoLocal[]> {
+  return db.getAllAsync<PresupuestoConceptoLocal>(
+    `SELECT id_local, espacio_id, mes, categoria_egreso_id, concepto_detalle_id, monto_asignado
+       FROM presupuesto_concepto
+      WHERE espacio_id = ? AND mes = ? AND categoria_egreso_id = ? AND eliminado = 0`,
+    [espacioId, mes, categoriaEgresoId],
+  );
+}
+
 /**
  * Guarda (upsert) el presupuesto completo de un mes sin violar la restricción UNIQUE.
- * Reemplaza o actualiza todos los registros del mes en una transacción atómica.
+ * Reemplaza o actualiza todos los registros de categoría y concepto en una transacción atómica.
  * Excluye automáticamente cualquier categoría de movimiento interno como "Transferencias".
  *
- * @param items  Array de { categoria_egreso_id, porcentaje_asignado, monto_asignado }
+ * @param items      Array de { categoria_egreso_id, porcentaje_asignado, monto_asignado }
+ * @param conceptos  Array opcional de { categoria_egreso_id, concepto_detalle_id, monto_asignado }
  */
 export async function upsertPresupuestoMes(
   db: SQLiteDatabase,
   mes: string,
   items: { categoria_egreso_id: string; porcentaje_asignado: number; monto_asignado: number }[],
+  conceptos?: { categoria_egreso_id: string; concepto_detalle_id: string; monto_asignado: number }[],
   espacioId = DEFAULT_ESPACIO_ID,
 ): Promise<void> {
   const ts = new Date().toISOString();
@@ -59,7 +99,7 @@ export async function upsertPresupuestoMes(
     );
     const validItems = items.filter((i) => i.categoria_egreso_id !== transferRow?.id_local);
 
-    // Obtener registros existentes para este mes
+    // Obtener registros existentes de categoría para este mes
     const existingRows = await db.getAllAsync<{ id_local: string; categoria_egreso_id: string }>(
       `SELECT id_local, categoria_egreso_id FROM presupuesto_categoria
         WHERE espacio_id = ? AND mes = ?`,
@@ -74,7 +114,6 @@ export async function upsertPresupuestoMes(
       const existingId = existingMap.get(item.categoria_egreso_id);
 
       if (existingId) {
-        // Ya existía un registro para esta categoría en este mes: actualizar
         await db.runAsync(
           `UPDATE presupuesto_categoria
               SET porcentaje_asignado = ?,
@@ -101,7 +140,6 @@ export async function upsertPresupuestoMes(
           ts,
         );
       } else {
-        // Nuevo registro para esta categoría en este mes
         const newId = Crypto.randomUUID();
         await db.runAsync(
           `INSERT INTO presupuesto_categoria
@@ -136,7 +174,7 @@ export async function upsertPresupuestoMes(
       }
     }
 
-    // 2. Marcar como eliminados los que ya no están en items
+    // 2. Marcar como eliminados los de categoría que ya no están en items
     for (const [catId, idLocal] of existingMap.entries()) {
       if (!incomingCatIds.has(catId)) {
         await db.runAsync(
@@ -148,6 +186,97 @@ export async function upsertPresupuestoMes(
           [ts, idLocal],
         );
         await _enqueue(db, 'presupuesto_categoria', idLocal, 'editar', { eliminado: 1 }, ts);
+      }
+    }
+
+    // 3. Upsert conceptos si fueron provistos
+    if (conceptos && conceptos.length > 0) {
+      const existingConceptRows = await db.getAllAsync<{ id_local: string; concepto_detalle_id: string }>(
+        `SELECT id_local, concepto_detalle_id FROM presupuesto_concepto
+          WHERE espacio_id = ? AND mes = ?`,
+        [espacioId, mes],
+      );
+
+      const existingConceptMap = new Map(existingConceptRows.map((r) => [r.concepto_detalle_id, r.id_local]));
+      const incomingConceptIds = new Set(conceptos.map((c) => c.concepto_detalle_id));
+
+      for (const conc of conceptos) {
+        const existingConceptId = existingConceptMap.get(conc.concepto_detalle_id);
+
+        if (existingConceptId) {
+          await db.runAsync(
+            `UPDATE presupuesto_concepto
+                SET monto_asignado = ?,
+                    categoria_egreso_id = ?,
+                    estado_sync = 'pendiente',
+                    fecha_modificacion = ?,
+                    eliminado = 0
+              WHERE id_local = ?`,
+            [conc.monto_asignado, conc.categoria_egreso_id, ts, existingConceptId],
+          );
+
+          await _enqueue(
+            db,
+            'presupuesto_concepto',
+            existingConceptId,
+            'editar',
+            {
+              espacio_id: espacioId,
+              mes,
+              categoria_egreso_id: conc.categoria_egreso_id,
+              concepto_detalle_id: conc.concepto_detalle_id,
+              monto_asignado: conc.monto_asignado,
+            },
+            ts,
+          );
+        } else {
+          const newConceptId = Crypto.randomUUID();
+          await db.runAsync(
+            `INSERT INTO presupuesto_concepto
+               (id_local, espacio_id, mes, categoria_egreso_id, concepto_detalle_id,
+                monto_asignado, estado_sync, fecha_modificacion, eliminado)
+             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, 0)`,
+            [
+              newConceptId,
+              espacioId,
+              mes,
+              conc.categoria_egreso_id,
+              conc.concepto_detalle_id,
+              conc.monto_asignado,
+              ts,
+            ],
+          );
+
+          await _enqueue(
+            db,
+            'presupuesto_concepto',
+            newConceptId,
+            'crear',
+            {
+              espacio_id: espacioId,
+              mes,
+              categoria_egreso_id: conc.categoria_egreso_id,
+              concepto_detalle_id: conc.concepto_detalle_id,
+              monto_asignado: conc.monto_asignado,
+            },
+            ts,
+          );
+        }
+      }
+
+      // Marcar eliminados los conceptos que se hayan removido
+      for (const [concId, idLocal] of existingConceptMap.entries()) {
+        if (!incomingConceptIds.has(concId)) {
+          await db.runAsync(
+            `UPDATE presupuesto_concepto
+                SET eliminado = 1,
+                    estado_sync = 'pendiente',
+                    fecha_modificacion = ?
+              WHERE id_local = ?`,
+            [ts, idLocal],
+          );
+          await _enqueue(db, 'presupuesto_concepto', idLocal, 'editar', { eliminado: 1 }, ts);
+        }
       }
     }
   });

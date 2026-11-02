@@ -30,6 +30,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -66,6 +67,12 @@ export default function BudgetScreen() {
   const styles = React.useMemo(() => getStyles(colors), [colors]);
   const [mes, setMes] = useState(mesActualISO());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = (catId: string) => {
+    triggerSoftTap();
+    setExpandedCats((prev) => ({ ...prev, [catId]: !prev[catId] }));
+  };
 
   const {
     disponible,
@@ -79,6 +86,7 @@ export default function BudgetScreen() {
     hasDraft,
     updatePct,
     updateMonto,
+    updateConceptMonto,
     guardar,
     discardDraft,
     refetch,
@@ -302,6 +310,69 @@ export default function BudgetScreen() {
                   real:        row.monto_real,
                 }}
               />
+
+              {/* ── Botón expandir/colapsar conceptos ─── */}
+              <TouchableOpacity
+                style={styles.expandBtn}
+                onPress={() => toggleExpand(row.categoria.id_local)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.expandBtnText}>
+                  {expandedCats[row.categoria.id_local]
+                    ? '▲ Ocultar conceptos'
+                    : `▼ Desglosar conceptos (${row.conceptos.length})`}
+                </Text>
+              </TouchableOpacity>
+
+              {/* ── Lista de conceptos desglosados ────── */}
+              {expandedCats[row.categoria.id_local] && (
+                <View style={styles.conceptContainer}>
+                  <View style={styles.conceptDivider} />
+                  <Text style={styles.conceptSectionTitle}>
+                    Sobres de {nombre} (Conceptos)
+                  </Text>
+                  {row.conceptos.length === 0 ? (
+                    <Text style={styles.conceptEmptyText}>
+                      No tienes conceptos creados en esta categoría.{'\n'}
+                      Puedes agregarlos desde el menú &gt; Categorías y Conceptos.
+                    </Text>
+                  ) : (
+                    row.conceptos.map((conc) => {
+                      const concDiff = conc.monto_presupuesto - conc.monto_real;
+                      const isOver = conc.monto_real > conc.monto_presupuesto && conc.monto_presupuesto > 0;
+                      return (
+                        <View key={conc.concepto.id_local} style={styles.conceptItem}>
+                          <View style={{ flex: 1, marginRight: Spacing.sm }}>
+                            <Text style={styles.conceptName}>{conc.concepto.nombre}</Text>
+                            <Text style={styles.conceptReal}>
+                              Gastado: <Text style={{ color: colors.textPrimary, fontWeight: FontWeight.semibold }}>{formatCurrency(conc.monto_real)}</Text>
+                              {conc.monto_presupuesto > 0 && (
+                                <Text style={{ color: isOver ? colors.expense : colors.income }}>
+                                  {' '}({isOver ? '-' : '+'}{formatCurrency(Math.abs(concDiff))})
+                                </Text>
+                              )}
+                            </Text>
+                          </View>
+                          <View style={styles.conceptInputWrapper}>
+                            <Text style={styles.conceptCurrencyPrefix}>S/</Text>
+                            <TextInput
+                              style={styles.conceptTextInput}
+                              defaultValue={conc.monto_presupuesto > 0 ? conc.monto_presupuesto.toString() : ''}
+                              placeholder="0.00"
+                              placeholderTextColor={colors.textMuted}
+                              keyboardType="numeric"
+                              onEndEditing={(e) => {
+                                const val = parseFloat(e.nativeEvent.text) || 0;
+                                updateConceptMonto(row.categoria.id_local, conc.concepto.id_local, val);
+                              }}
+                            />
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              )}
             </Card>
           );
         })}
@@ -479,6 +550,86 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: 'space-between',
   },
   montoLabel: { color: colors.textSecondary, fontSize: FontSize.xs },
+
+  // Botón y desglose por conceptos
+  expandBtn: {
+    paddingVertical: Spacing.xs + 2,
+    marginTop: Spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandBtnText: {
+    color: colors.primary,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+  },
+  conceptContainer: {
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.xs,
+  },
+  conceptDivider: {
+    height: 1,
+    backgroundColor: colors.border + '40',
+    marginBottom: Spacing.sm,
+  },
+  conceptSectionTitle: {
+    fontSize: FontSize.xs - 1,
+    fontWeight: FontWeight.bold,
+    color: colors.textSecondary,
+    marginBottom: Spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  conceptEmptyText: {
+    fontSize: FontSize.xs,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    paddingVertical: Spacing.xs,
+    lineHeight: 18,
+  },
+  conceptItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.xs + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '20',
+  },
+  conceptName: {
+    fontSize: FontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: FontWeight.medium,
+  },
+  conceptReal: {
+    fontSize: FontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  conceptInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bgInput,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: Spacing.xs + 2,
+    minWidth: 85,
+    height: 34,
+  },
+  conceptCurrencyPrefix: {
+    fontSize: FontSize.xs,
+    color: colors.textMuted,
+    marginRight: 4,
+    fontWeight: FontWeight.semibold,
+  },
+  conceptTextInput: {
+    flex: 1,
+    fontSize: FontSize.xs + 1,
+    fontWeight: FontWeight.bold,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+    textAlign: 'right',
+  },
 
   // Vacío
   emptyText: { color: colors.textMuted, fontSize: FontSize.sm, textAlign: 'center', paddingVertical: Spacing.lg, lineHeight: 22 },

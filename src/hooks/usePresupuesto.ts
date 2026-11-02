@@ -5,19 +5,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDatabase } from '../db/database';
-import { getCatEgresoByEspacio, type CatEgreso } from '../db/repositories/categorias';
-import { getPresupuestoByMes, upsertPresupuestoMes } from '../db/repositories/presupuesto';
-import { getSumByTipoMes, getSumByCategoriaMes, getSaldoHistoricoHasta } from '../db/repositories/transacciones';
+import { getCatEgresoByEspacio, type CatEgreso, type ConceptoDetalle } from '../db/repositories/categorias';
+import { getPresupuestoByMes, getPresupuestoConceptosByMes, upsertPresupuestoMes } from '../db/repositories/presupuesto';
+import { getSumByTipoMes, getSumByCategoriaMes, getSumByConceptoMes, getSaldoHistoricoHasta } from '../db/repositories/transacciones';
 import { DEFAULT_ESPACIO_ID } from '../db/seed';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
+export interface ConceptBudgetRow {
+  concepto:          ConceptoDetalle;
+  monto_presupuesto: number;   // Monto asignado al concepto
+  monto_real:        number;   // Gasto real registrado en el mes
+  diferencia:        number;   // presupuesto - real
+}
+
 export interface BudgetRow {
   categoria:          CatEgreso;
   porcentaje:         number;   // 0–100 (para mostrar en UI)
-  monto_presupuesto:  number;   // = porcentaje/100 * disponible
+  monto_presupuesto:  number;   // = porcentaje/100 * disponible o suma de conceptos
   monto_real:         number;   // gasto registrado en el mes
   diferencia:         number;   // presupuesto - real
+  conceptos:          ConceptBudgetRow[];
 }
 
 export interface BudgetSummaryItem {
@@ -38,20 +46,20 @@ export interface UsePresupuesto {
   hasDraft:     boolean;
   updatePct:    (catId: string, nuevoPct: number) => void;
   updateMonto:  (catId: string, nuevoMonto: number) => void;
+  updateConceptMonto: (catId: string, conceptoId: string, nuevoMonto: number) => void;
   guardar:      () => Promise<void>;
   discardDraft: () => Promise<void>;
   refetch:      () => void;
 }
 
-// ── Mes previo helper ─────────────────────────────────────────────────────────
-function mesPrevio(mes: string): string {
-  const [y, m] = mes.split('-').map(Number);
-  const d = new Date(y, m - 2, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
-
 // ── Helper clave borrador ─────────────────────────────────────────────────────
 const getBudgetDraftKey = (espacioId: string, mes: string) => `@aphelios_budget_draft_${espacioId}_${mes}`;
+
+interface DraftCategoryData {
+  porcentaje: number;
+  monto_presupuesto: number;
+  conceptos?: Record<string, number>;
+}
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -78,11 +86,19 @@ export function usePresupuesto(
       const disp         = Math.max(saldoInicial + ingMes, 0);
       setDisponible(disp);
 
-      // ── Categorías y su presupuesto guardado ─────────────────────────────
-      const [allCats, presupuestos, reales] = await Promise.all([
+      // ── Categorías, conceptos y sus presupuestos guardados ───────────────
+      const [allCats, presupuestos, reales, allConceptos, presupConceptos, realesConceptos] = await Promise.all([
         getCatEgresoByEspacio(db, espacioId),
         getPresupuestoByMes(db, mes, espacioId),
         getSumByCategoriaMes(db, mes, espacioId),
+        db.getAllAsync<ConceptoDetalle>(
+          `SELECT id_local, categoria_egreso_id, nombre 
+             FROM conceptos_detalle 
+            WHERE eliminado = 0 
+            ORDER BY rowid ASC`
+        ),
+        getPresupuestoConceptosByMes(db, mes, espacioId),
+        getSumByConceptoMes(db, mes, undefined, espacioId),
       ]);
 
       // Las transferencias son movimientos internos, no deben presupuestarse
@@ -123,6 +139,19 @@ export function usePresupuesto(
       setExistingBudgetSummary(summary);
 
       let built: BudgetRow[] = cats.map((cat) => {
+        const catConceptos = allConceptos.filter((c) => c.categoria_egreso_id === cat.id_local);
+        const conceptosRows: ConceptBudgetRow[] = catConceptos.map((conc) => {
+          const concSaved = presupConceptos.find((pc) => pc.concepto_detalle_id === conc.id_local);
+          const concReal = realesConceptos.find((rc) => rc.concepto_detalle_id === conc.id_local)?.total ?? 0;
+          const concMonto = concSaved?.monto_asignado ?? 0;
+          return {
+            concepto: conc,
+            monto_presupuesto: concMonto,
+            monto_real: concReal,
+            diferencia: concMonto - concReal,
+          };
+        });
+
         const saved = presupuestosValidos.find((p) => p.categoria_egreso_id === cat.id_local);
         let monto = 0;
         let pct = 0;
@@ -133,17 +162,25 @@ export function usePresupuesto(
             monto = saved.porcentaje_asignado * disp;
           }
         }
+
+        // Si la categoría tiene conceptos presupuestados y superan o definen el monto, respetar
+        const conceptSum = conceptosRows.reduce((acc, c) => acc + c.monto_presupuesto, 0);
+        if (monto === 0 && conceptSum > 0) {
+          monto = conceptSum;
+        }
+
         if (disp > 0) {
           pct = Number(((monto / disp) * 100).toFixed(1));
         }
 
-        const real  = reales.find((r) => r.categoria_egreso_id === cat.id_local)?.total ?? 0;
+        const real = reales.find((r) => r.categoria_egreso_id === cat.id_local)?.total ?? 0;
         return {
           categoria:          cat,
           porcentaje:         pct,
           monto_presupuesto:  monto,
           monto_real:         real,
           diferencia:         monto - real,
+          conceptos:          conceptosRows,
         };
       });
 
@@ -151,17 +188,30 @@ export function usePresupuesto(
       try {
         const draftRaw = await AsyncStorage.getItem(getBudgetDraftKey(espacioId, mes));
         if (draftRaw) {
-          const draftMap: Record<string, { porcentaje: number; monto_presupuesto: number }> = JSON.parse(draftRaw);
+          const draftMap: Record<string, DraftCategoryData> = JSON.parse(draftRaw);
           let appliedDraft = false;
           built = built.map((row) => {
             const entry = draftMap[row.categoria.id_local];
             if (entry) {
               appliedDraft = true;
+              const nextConceptos = row.conceptos.map((c) => {
+                const concMonto = entry.conceptos?.[c.concepto.id_local];
+                if (concMonto !== undefined) {
+                  return {
+                    ...c,
+                    monto_presupuesto: concMonto,
+                    diferencia: concMonto - c.monto_real,
+                  };
+                }
+                return c;
+              });
+
               return {
                 ...row,
                 porcentaje:        entry.porcentaje,
                 monto_presupuesto: entry.monto_presupuesto,
                 diferencia:        entry.monto_presupuesto - row.monto_real,
+                conceptos:         nextConceptos,
               };
             }
             return row;
@@ -185,11 +235,16 @@ export function usePresupuesto(
   // Guardar borrador en AsyncStorage
   const persistDraft = useCallback((updatedRows: BudgetRow[]) => {
     try {
-      const draftMap: Record<string, { porcentaje: number; monto_presupuesto: number }> = {};
+      const draftMap: Record<string, DraftCategoryData> = {};
       updatedRows.forEach((r) => {
+        const concDraft: Record<string, number> = {};
+        r.conceptos.forEach((c) => {
+          concDraft[c.concepto.id_local] = c.monto_presupuesto;
+        });
         draftMap[r.categoria.id_local] = {
           porcentaje: r.porcentaje,
           monto_presupuesto: r.monto_presupuesto,
+          conceptos: concDraft,
         };
       });
       AsyncStorage.setItem(getBudgetDraftKey(espacioId, mes), JSON.stringify(draftMap));
@@ -199,7 +254,7 @@ export function usePresupuesto(
     }
   }, [espacioId, mes]);
 
-  // ── Actualizar % localmente (guardando borrador) ─────────────────────────
+  // ── Actualizar % de categoría (guardando borrador) ───────────────────────
   const updatePct = useCallback((catId: string, nuevoPct: number) => {
     setRows((prev) => {
       const next = prev.map((r) => {
@@ -218,6 +273,7 @@ export function usePresupuesto(
     });
   }, [disponible, persistDraft]);
 
+  // ── Actualizar monto de categoría directamente ──────────────────────────
   const updateMonto = useCallback((catId: string, nuevoMonto: number) => {
     setRows((prev) => {
       const next = prev.map((r) => {
@@ -236,6 +292,38 @@ export function usePresupuesto(
     });
   }, [disponible, persistDraft]);
 
+  // ── Actualizar monto de un concepto de detalle ───────────────────────────
+  const updateConceptMonto = useCallback((catId: string, conceptoId: string, nuevoMonto: number) => {
+    setRows((prev) => {
+      const next = prev.map((r) => {
+        if (r.categoria.id_local !== catId) return r;
+        const validMonto = Math.max(0, nuevoMonto);
+        const nextConceptos = r.conceptos.map((c) => {
+          if (c.concepto.id_local !== conceptoId) return c;
+          return {
+            ...c,
+            monto_presupuesto: validMonto,
+            diferencia: validMonto - c.monto_real,
+          };
+        });
+
+        // La categoría suma automáticamente el monto de todos sus conceptos
+        const nuevaSumaConceptos = nextConceptos.reduce((acc, c) => acc + c.monto_presupuesto, 0);
+        const nuevoPct = disponible > 0 ? Number(((nuevaSumaConceptos / disponible) * 100).toFixed(1)) : 0;
+
+        return {
+          ...r,
+          porcentaje: nuevoPct,
+          monto_presupuesto: Number(nuevaSumaConceptos.toFixed(2)),
+          diferencia: Number((nuevaSumaConceptos - r.monto_real).toFixed(2)),
+          conceptos: nextConceptos,
+        };
+      });
+      persistDraft(next);
+      return next;
+    });
+  }, [disponible, persistDraft]);
+
   const totalPct = rows.reduce((s, r) => s + r.porcentaje, 0);
   const totalMonto = rows.reduce((s, r) => s + r.monto_presupuesto, 0);
 
@@ -247,6 +335,17 @@ export function usePresupuesto(
     }
     setSaving(true);
     try {
+      const flatConceptos: { categoria_egreso_id: string; concepto_detalle_id: string; monto_asignado: number }[] = [];
+      for (const r of rows) {
+        for (const c of r.conceptos) {
+          flatConceptos.push({
+            categoria_egreso_id: r.categoria.id_local,
+            concepto_detalle_id: c.concepto.id_local,
+            monto_asignado: c.monto_presupuesto,
+          });
+        }
+      }
+
       await upsertPresupuestoMes(
         db,
         mes,
@@ -255,6 +354,7 @@ export function usePresupuesto(
           porcentaje_asignado:  r.porcentaje / 100,
           monto_asignado:       r.monto_presupuesto,
         })),
+        flatConceptos,
         espacioId,
       );
       // Limpiar borrador al guardar exitosamente
@@ -288,6 +388,7 @@ export function usePresupuesto(
     hasDraft,
     updatePct,
     updateMonto,
+    updateConceptMonto,
     guardar,
     discardDraft,
     refetch: load,

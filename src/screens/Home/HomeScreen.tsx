@@ -208,7 +208,7 @@ export default function HomeScreen() {
   const currentHour = new Date().getHours();
   const forceLightText = !isDark && (currentHour >= 18 || currentHour < 5);
 
-  const { resumen, categoriasReal, patrimonio, loading, refetch } =
+  const { resumen, categoriasReal, presupuestos, presupuestoTotal, patrimonio, loading, refetch } =
     useResumenMensual(mes);
   const { catEgreso, refetch: refetchCategorias } = useCategorias();
 
@@ -259,16 +259,18 @@ export default function HomeScreen() {
     return isDark ? ['#1a1040', '#0d1a40'] : [colors.primary, colors.secondary];
   }, [porcentajeGastado, isDark, colors]);
 
-  // Combinar catEgreso con sus montos reales (excluyendo Transferencias)
+  // Combinar catEgreso con sus montos presupuestados y reales (excluyendo Transferencias)
   const categoriaRows = catEgreso
     .filter((cat) => cat.nombre.trim().toLowerCase() !== 'transferencias')
     .map((cat) => {
       const real = categoriasReal.find((r) => r.categoria_egreso_id === cat.id_local)?.total ?? 0;
+      const presupRow = presupuestos.find((p) => p.categoria_egreso_id === cat.id_local);
+      const presupMonto = presupRow ? presupRow.monto_asignado : 0;
       return {
         id: cat.id_local,
         nombre: cat.nombre,
         iconSource: ICON_MAP[cat.nombre],
-        presupuesto: 0,   // TODO: leer de presupuesto_categoria
+        presupuesto: presupMonto,
         real,
       };
     });
@@ -581,39 +583,75 @@ export default function HomeScreen() {
             </>
           )}
 
-          {/* ── PRESUPUESTO MENSUAL ─────── */}
+          {/* ── PRESUPUESTO DEL MES (RESUMEN VS REAL) ─────── */}
           {!loading && resumen && (
             <>
-              <View style={styles.sectionHeader}>
+              <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <Text style={styles.sectionTitle}>Presupuesto del mes</Text>
+                <TouchableOpacity onPress={() => { triggerSoftTap(); navigation.navigate('Budget'); }}>
+                  <Text style={styles.sectionLink}>Ajustar →</Text>
+                </TouchableOpacity>
               </View>
 
               <Card>
-                <Text style={styles.patrimonioTotal}>
-                  {formatCurrency(resumen.disponible)}
-                </Text>
-                <Text style={styles.patrimonioSubLabel}>Total disponible para gastar</Text>
+                {presupuestoTotal > 0 ? (
+                  <>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: Spacing.sm }}>
+                      <View>
+                        <Text style={[styles.patrimonioSubLabel, { textAlign: 'left', marginBottom: 2 }]}>Presupuesto Total</Text>
+                        <Text style={[styles.patrimonioTotal, { textAlign: 'left', fontSize: FontSize.lg }]}>
+                          {formatCurrency(presupuestoTotal)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.patrimonioSubLabel, { textAlign: 'right', marginBottom: 2 }]}>Gastado Real</Text>
+                        <Text style={[styles.patrimonioTotal, { textAlign: 'right', fontSize: FontSize.lg, color: colors.expense }]}>
+                          {formatCurrency(resumen.egresos_totales)}
+                        </Text>
+                      </View>
+                    </View>
 
-                <View style={styles.heroTrackOuter}>
-                  <View
-                    style={[
-                      styles.heroTrackInner,
-                      {
-                        width: `${Math.min(porcentajeGastado * 100, 100)}%`,
-                        backgroundColor:
-                          porcentajeGastado > 0.9 ? colors.expense : colors.primary,
-                      },
-                    ]}
-                  />
-                </View>
+                    {(() => {
+                      const pctPresup = Math.min(resumen.egresos_totales / presupuestoTotal, 1);
+                      const margenPresup = presupuestoTotal - resumen.egresos_totales;
+                      const sobrePresup = margenPresup < 0;
+                      return (
+                        <>
+                          <View style={styles.heroTrackOuter}>
+                            <View
+                              style={[
+                                styles.heroTrackInner,
+                                {
+                                  width: `${Math.min((resumen.egresos_totales / presupuestoTotal) * 100, 100)}%`,
+                                  backgroundColor: sobrePresup ? colors.expense : pctPresup > 0.85 ? colors.warning : colors.primary,
+                                },
+                              ]}
+                            />
+                          </View>
 
-                <Text style={[styles.heroSubtext, { marginTop: Spacing.xs, textAlign: 'center' }]}>
-                  {formatPercent(porcentajeGastado)} utilizado ·{' '}
-                  <Text style={{ color: diferenciaPositiva ? colors.income : colors.expense, fontWeight: FontWeight.semibold }}>
-                    {diferenciaPositiva ? '+' : ''}
-                    {formatCurrency(resumen.diferencia)} restante
-                  </Text>
-                </Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.xs }}>
+                            <Text style={styles.heroSubtext}>
+                              {formatPercent(resumen.egresos_totales / presupuestoTotal)} consumido
+                            </Text>
+                            <Text style={[styles.heroSubtext, { color: sobrePresup ? colors.expense : colors.income, fontWeight: FontWeight.bold }]}>
+                              {sobrePresup ? '-' : '+'}{formatCurrency(Math.abs(margenPresup))} {sobrePresup ? 'sobrepasado' : 'por gastar'}
+                            </Text>
+                          </View>
+                        </>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <TouchableOpacity activeOpacity={0.8} onPress={() => { triggerSoftTap(); navigation.navigate('Budget'); }} style={{ paddingVertical: Spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 28, marginBottom: 4 }}>🎯</Text>
+                    <Text style={{ color: colors.textPrimary, fontSize: FontSize.sm, fontWeight: FontWeight.semibold, textAlign: 'center' }}>
+                      Sin presupuesto definido para este mes
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: FontSize.xs, textAlign: 'center', marginTop: 4 }}>
+                      Toca aquí para definir tus metas y sobres por categoría
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </Card>
             </>
           )}

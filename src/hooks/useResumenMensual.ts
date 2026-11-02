@@ -15,6 +15,7 @@ import { useDatabase } from '../db/database';
 import { getSumByTipoMes, getSumByCategoriaMes, getTotalesBilletera, getSaldoHistoricoHasta } from '../db/repositories/transacciones';
 import { getTotalesDeuda } from '../db/repositories/deudas';
 import { getTotalInvertido } from '../db/repositories/inversiones';
+import { getPresupuestoByMes, type PresupuestoCatLocal } from '../db/repositories/presupuesto';
 import { DEFAULT_ESPACIO_ID } from '../db/seed';
 import type { ResumenMensual } from '../constants/types';
 
@@ -35,11 +36,13 @@ export interface Patrimonio {
 }
 
 export interface UseResumenMensual {
-  resumen:      ResumenMensual | null;
-  categoriasReal: CategoryReal[];
-  patrimonio:   Patrimonio | null;
-  loading:      boolean;
-  refetch:      () => void;
+  resumen:          ResumenMensual | null;
+  categoriasReal:   CategoryReal[];
+  presupuestos:     PresupuestoCatLocal[];
+  presupuestoTotal: number;
+  patrimonio:       Patrimonio | null;
+  loading:          boolean;
+  refetch:          () => void;
 }
 
 export function useResumenMensual(
@@ -47,10 +50,12 @@ export function useResumenMensual(
   espacioId = DEFAULT_ESPACIO_ID,
 ): UseResumenMensual {
   const db = useDatabase();
-  const [resumen, setResumen]               = useState<ResumenMensual | null>(null);
-  const [categoriasReal, setCategoriasReal] = useState<CategoryReal[]>([]);
-  const [patrimonio, setPatrimonio]         = useState<Patrimonio | null>(null);
-  const [loading, setLoading]               = useState(true);
+  const [resumen, setResumen]                       = useState<ResumenMensual | null>(null);
+  const [categoriasReal, setCategoriasReal]         = useState<CategoryReal[]>([]);
+  const [presupuestos, setPresupuestos]             = useState<PresupuestoCatLocal[]>([]);
+  const [presupuestoTotal, setPresupuestoTotal]     = useState<number>(0);
+  const [patrimonio, setPatrimonio]                 = useState<Patrimonio | null>(null);
+  const [loading, setLoading]                       = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,9 +64,12 @@ export function useResumenMensual(
       const saldoInicial = await getSaldoHistoricoHasta(db, mes, espacioId);
 
       // Mes actual
-      const ingresos  = await getSumByTipoMes(db, mes, 'ingreso',  espacioId);
-      const egresos   = await getSumByTipoMes(db, mes, 'egreso',   espacioId);
-      const catReales = await getSumByCategoriaMes(db, mes, espacioId);
+      const ingresos     = await getSumByTipoMes(db, mes, 'ingreso',  espacioId);
+      const egresos      = await getSumByTipoMes(db, mes, 'egreso',   espacioId);
+      const catReales    = await getSumByCategoriaMes(db, mes, espacioId);
+      const presupCats   = await getPresupuestoByMes(db, mes, espacioId);
+
+      const totalPresup  = presupCats.reduce((acc, p) => acc + (p.monto_asignado || 0), 0);
 
       const disponible = saldoInicial + ingresos;
 
@@ -76,6 +84,8 @@ export function useResumenMensual(
       });
 
       setCategoriasReal(catReales);
+      setPresupuestos(presupCats);
+      setPresupuestoTotal(totalPresup);
 
       // Patrimonio
       const { me_deben, debo } = await getTotalesDeuda(db, espacioId);
@@ -112,5 +122,5 @@ export function useResumenMensual(
 
   useEffect(() => { load(); }, [load]);
 
-  return { resumen, categoriasReal, patrimonio, loading, refetch: load };
+  return { resumen, categoriasReal, presupuestos, presupuestoTotal, patrimonio, loading, refetch: load };
 }

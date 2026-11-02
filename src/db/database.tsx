@@ -74,6 +74,27 @@ export function DbProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        try {
+          await database.execAsync(`
+            CREATE TABLE IF NOT EXISTS presupuesto_concepto (
+              id_local              TEXT PRIMARY KEY,
+              id_remoto             TEXT,
+              espacio_id            TEXT NOT NULL REFERENCES espacios(id_local) ON DELETE CASCADE,
+              mes                   TEXT NOT NULL,
+              categoria_egreso_id   TEXT NOT NULL REFERENCES categorias_egreso(id_local) ON DELETE CASCADE,
+              concepto_detalle_id   TEXT NOT NULL REFERENCES conceptos_detalle(id_local) ON DELETE CASCADE,
+              monto_asignado        REAL NOT NULL DEFAULT 0,
+              estado_sync           TEXT NOT NULL DEFAULT 'pendiente',
+              fecha_modificacion    TEXT NOT NULL,
+              eliminado             INTEGER NOT NULL DEFAULT 0,
+              UNIQUE (espacio_id, mes, concepto_detalle_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_presup_concepto_mes ON presupuesto_concepto (espacio_id, mes, categoria_egreso_id);
+          `);
+        } catch (e: any) {
+          console.warn('[DB] Migración presupuesto_concepto falló:', e);
+        }
+
         // Sembrar catálogo inicial si la DB está vacía
         await seedIfEmpty(database);
 

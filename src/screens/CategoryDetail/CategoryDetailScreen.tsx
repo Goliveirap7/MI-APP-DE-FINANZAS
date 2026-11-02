@@ -13,6 +13,7 @@ import {
   Alert,
   Vibration,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -20,7 +21,7 @@ import { FontSize, FontWeight, Radius, Spacing, type ThemeColors } from '../../c
 import { useDatabase } from '../../db/database';
 import { SyncEngine } from '../../db/sync/SyncEngine';
 import { useCategorias } from '../../hooks/useCategorias';
-import { getTransaccionesDetalle, deleteTransaccion, TransaccionLocal } from '../../db/repositories/transacciones';
+import { getTransaccionesDetalle, deleteTransaccion, getSumByConceptoMes, TransaccionLocal } from '../../db/repositories/transacciones';
 import { formatCurrency } from '../../utils/format';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -40,9 +41,18 @@ export default function CategoryDetailScreen() {
   const db = useDatabase();
   const { catIngreso, catEgreso, conceptosPor } = useCategorias();
 
+  interface ConceptBreakdown {
+    id: string;
+    nombre: string;
+    presupuesto: number;
+    real: number;
+  }
+
   const [transacciones, setTransacciones] = useState<TransaccionLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [catPresupuesto, setCatPresupuesto] = useState<number>(0);
+  const [catConceptos, setCatConceptos] = useState<ConceptBreakdown[]>([]);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -53,6 +63,41 @@ export default function CategoryDetailScreen() {
     try {
       const data = await getTransaccionesDetalle(db, mes, tipo, categoriaId);
       setTransacciones(data);
+
+      if (tipo === 'egreso' && categoriaId) {
+        // Cargar presupuesto de categoría
+        const presCat = await db.getFirstAsync<{ monto_asignado: number }>(
+          `SELECT monto_asignado FROM presupuesto_categoria 
+            WHERE mes = ? AND categoria_egreso_id = ? AND eliminado = 0`,
+          [mes, categoriaId]
+        );
+        setCatPresupuesto(presCat?.monto_asignado || 0);
+
+        // Cargar conceptos y sus presupuestos
+        const conceptos = await db.getAllAsync<{ id_local: string; nombre: string }>(
+          `SELECT id_local, nombre FROM conceptos_detalle 
+            WHERE categoria_egreso_id = ? AND eliminado = 0 ORDER BY rowid ASC`,
+          [categoriaId]
+        );
+        const presConceptos = await db.getAllAsync<{ concepto_detalle_id: string; monto_asignado: number }>(
+          `SELECT concepto_detalle_id, monto_asignado FROM presupuesto_concepto 
+            WHERE mes = ? AND categoria_egreso_id = ? AND eliminado = 0`,
+          [mes, categoriaId]
+        );
+        const realConceptos = await getSumByConceptoMes(db, mes, categoriaId);
+
+        const breakdown: ConceptBreakdown[] = conceptos.map((c) => {
+          const pres = presConceptos.find((pc) => pc.concepto_detalle_id === c.id_local)?.monto_asignado || 0;
+          const real = realConceptos.find((rc) => rc.concepto_detalle_id === c.id_local)?.total || 0;
+          return {
+            id: c.id_local,
+            nombre: c.nombre,
+            presupuesto: pres,
+            real,
+          };
+        });
+        setCatConceptos(breakdown);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -173,7 +218,11 @@ export default function CategoryDetailScreen() {
     ]);
   };
 
-  const title = tipo === 'ingreso' ? 'Detalle de Ingresos' : 'Detalle de Gastos';
+  const specificCat = categoriaId
+    ? (tipo === 'ingreso' ? catIngreso : catEgreso).find((c) => c.id_local === categoriaId)?.nombre
+    : null;
+  const title = specificCat || (tipo === 'ingreso' ? 'Detalle de Ingresos' : 'Detalle de Gastos');
+  const totalSpentInCat = transacciones.reduce((acc, t) => acc + (t.monto_real || 0), 0);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -198,6 +247,73 @@ export default function CategoryDetailScreen() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{title}</Text>
           <View style={{ width: 60 }} />
+        </View>
+      )}
+
+      {/* Hero Card de Presupuesto vs Real de la Categoría */}
+      {tipo === 'egreso' && categoriaId && (
+        <View style={styles.catHeroCard}>
+          <View style={styles.catHeroRow}>
+            <View>
+              <Text style={styles.catHeroLabel}>Presupuestado</Text>
+              <Text style={styles.catHeroMonto}>
+                {formatCurrency(catPresupuesto)}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={styles.catHeroLabel}>Gastado</Text>
+              <Text style={[styles.catHeroMonto, { color: colors.expense }]}>
+                {formatCurrency(totalSpentInCat)}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.catHeroLabel}>Restante</Text>
+              <Text style={[styles.catHeroMonto, { color: (catPresupuesto - totalSpentInCat) >= 0 ? colors.income : colors.expense }]}>
+                {(catPresupuesto - totalSpentInCat) >= 0 ? '+' : '-'}{formatCurrency(Math.abs(catPresupuesto - totalSpentInCat))}
+              </Text>
+            </View>
+          </View>
+
+          {catPresupuesto > 0 && (
+            <View style={styles.catHeroTrackOuter}>
+              <View
+                style={[
+                  styles.catHeroTrackInner,
+                  {
+                    width: `${Math.min((totalSpentInCat / catPresupuesto) * 100, 100)}%`,
+                    backgroundColor: totalSpentInCat > catPresupuesto ? colors.expense : colors.primary,
+                  },
+                ]}
+              />
+            </View>
+          )}
+
+          {catConceptos.length > 0 && (
+            <View style={styles.catConceptosBox}>
+              <Text style={styles.catConceptosTitle}>Sobres de esta categoría:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                {catConceptos.map((conc) => {
+                  const isOver = conc.real > conc.presupuesto && conc.presupuesto > 0;
+                  return (
+                    <View key={conc.id} style={styles.conceptPill}>
+                      <Text style={styles.conceptPillTitle}>{conc.nombre}</Text>
+                      <Text style={styles.conceptPillMonto}>
+                        {formatCurrency(conc.real)}
+                        {conc.presupuesto > 0 && (
+                          <Text style={{ color: colors.textMuted }}> / {formatCurrency(conc.presupuesto)}</Text>
+                        )}
+                      </Text>
+                      {conc.presupuesto > 0 && (
+                        <Text style={[styles.conceptPillDiff, { color: isOver ? colors.expense : colors.income }]}>
+                          {isOver ? '⚠️ Excedido' : `+${formatCurrency(conc.presupuesto - conc.real)}`}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
         </View>
       )}
 
@@ -405,5 +521,79 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.primary,
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
+  },
+  catHeroCard: {
+    backgroundColor: colors.bgCard,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  catHeroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  catHeroLabel: {
+    fontSize: FontSize.xs,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  catHeroMonto: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.bold,
+    color: colors.textPrimary,
+  },
+  catHeroTrackOuter: {
+    height: 6,
+    backgroundColor: colors.bgInput,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+    marginTop: Spacing.sm,
+  },
+  catHeroTrackInner: {
+    height: '100%',
+    borderRadius: Radius.full,
+  },
+  catConceptosBox: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '40',
+  },
+  catConceptosTitle: {
+    fontSize: FontSize.xs - 1,
+    fontWeight: FontWeight.bold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  conceptPill: {
+    backgroundColor: colors.bgInput,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 100,
+  },
+  conceptPillTitle: {
+    fontSize: FontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: FontWeight.semibold,
+  },
+  conceptPillMonto: {
+    fontSize: FontSize.xs - 1,
+    color: colors.textPrimary,
+    fontWeight: FontWeight.bold,
+    marginTop: 2,
+  },
+  conceptPillDiff: {
+    fontSize: FontSize.xs - 2,
+    fontWeight: FontWeight.semibold,
+    marginTop: 1,
   },
 });

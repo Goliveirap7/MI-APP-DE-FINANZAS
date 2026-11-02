@@ -73,6 +73,21 @@ CREATE TABLE IF NOT EXISTS presupuesto_categoria (
   UNIQUE (espacio_id, mes, categoria_egreso_id)
 );
 
+-- ── Presupuesto mensual por concepto de detalle ──────────────────────────────
+CREATE TABLE IF NOT EXISTS presupuesto_concepto (
+  id_local              TEXT PRIMARY KEY,
+  id_remoto             TEXT,
+  espacio_id            TEXT NOT NULL REFERENCES espacios(id_local) ON DELETE CASCADE,
+  mes                   TEXT NOT NULL,   -- 'YYYY-MM-01'
+  categoria_egreso_id   TEXT NOT NULL REFERENCES categorias_egreso(id_local) ON DELETE CASCADE,
+  concepto_detalle_id   TEXT NOT NULL REFERENCES conceptos_detalle(id_local) ON DELETE CASCADE,
+  monto_asignado        REAL NOT NULL DEFAULT 0,
+  estado_sync           TEXT NOT NULL DEFAULT 'pendiente',
+  fecha_modificacion    TEXT NOT NULL,
+  eliminado             INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (espacio_id, mes, concepto_detalle_id)
+);
+
 -- ── Transacciones ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS transacciones (
   id_local              TEXT PRIMARY KEY,
@@ -140,5 +155,6 @@ CREATE INDEX IF NOT EXISTS idx_tx_espacio_fecha   ON transacciones (espacio_id, 
 CREATE INDEX IF NOT EXISTS idx_tx_eliminado        ON transacciones (eliminado);
 CREATE INDEX IF NOT EXISTS idx_deudas_estado       ON deudas (espacio_id, estado);
 CREATE INDEX IF NOT EXISTS idx_presup_espacio_mes  ON presupuesto_categoria (espacio_id, mes);
+CREATE INDEX IF NOT EXISTS idx_presup_concepto_mes ON presupuesto_concepto (espacio_id, mes, categoria_egreso_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_creado   ON sync_queue (creado_en);
 `;
