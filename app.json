@@ -2,7 +2,7 @@
   "expo": {
     "name": "Aphelios",
     "slug": "app_finanzas",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.goliveira.appfinanzas",
-      "versionCode": 14,
+      "versionCode": 15,
       "softwareKeyboardLayoutMode": "pan",
       "splash": {
         "image": "./assets/logo.png",
@@ -29,9 +29,7 @@
       },
       "adaptiveIcon": {
         "backgroundColor": "#0F1117",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
