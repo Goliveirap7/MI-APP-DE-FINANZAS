@@ -5,8 +5,8 @@
  *  Sin sesión  → AuthStack
  *  Con sesión  → MainTabs (este archivo)
  */
-import React from 'react';
-import { Text } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
@@ -100,34 +100,58 @@ import StreakScreen from '../screens/Streak/StreakScreen';
 import CategoriesScreen from '../screens/Categories/CategoriesScreen';
 import SimulatorScreen from '../screens/Simulator/SimulatorScreen';
 import { useTheme } from '../context/ThemeContext';
+import AnimatedSplashScreen from '../components/ui/AnimatedSplashScreen';
 
 export default function RootNavigator() {
   const { session, loading } = useAuth();
+  const isFirstMount = useRef(true);
+  const [showAuthSplash, setShowAuthSplash] = useState(false);
+
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    // Cuando el usuario inicia sesión o se registra con éxito
+    if (session) {
+      setShowAuthSplash(true);
+    }
+  }, [session]);
 
   // If loading session state from AsyncStorage, you might want to return null or a splash screen
   if (loading) return null;
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {session ? (
-          <>
-            <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen name="CategoryDetail" component={CategoryDetailScreen} />
-            <Stack.Screen name="AddTransaction" component={AddTransactionScreen} />
-            <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="BalanceDetail" component={BalanceDetailScreen} />
-            <Stack.Screen name="Debts" component={DebtsScreen} />
-            <Stack.Screen name="Investments" component={InvestmentsScreen} />
-            <Stack.Screen name="Streak" component={StreakScreen} />
-            <Stack.Screen name="Categories" component={CategoriesScreen} />
-            <Stack.Screen name="Simulator" component={SimulatorScreen} />
-          </>
-        ) : (
-          <Stack.Screen name="Auth" component={AuthScreen} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <View style={{ flex: 1 }}>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {session ? (
+            <>
+              <Stack.Screen name="MainTabs" component={MainTabs} />
+              <Stack.Screen name="CategoryDetail" component={CategoryDetailScreen} />
+              <Stack.Screen name="AddTransaction" component={AddTransactionScreen} />
+              <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="BalanceDetail" component={BalanceDetailScreen} />
+              <Stack.Screen name="Debts" component={DebtsScreen} />
+              <Stack.Screen name="Investments" component={InvestmentsScreen} />
+              <Stack.Screen name="Streak" component={StreakScreen} />
+              <Stack.Screen name="Categories" component={CategoriesScreen} />
+              <Stack.Screen name="Simulator" component={SimulatorScreen} />
+            </>
+          ) : (
+            <Stack.Screen name="Auth" component={AuthScreen} />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      {/* Splash Screen animado de transición al Iniciar Sesión o Registrarse */}
+      {showAuthSplash && (
+        <AnimatedSplashScreen
+          minDurationMs={1600}
+          onFinish={() => setShowAuthSplash(false)}
+        />
+      )}
+    </View>
   );
 }

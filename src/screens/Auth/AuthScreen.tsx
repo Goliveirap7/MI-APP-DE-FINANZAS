@@ -2,7 +2,7 @@
  * AuthScreen — Login & Registro con Supabase (RF-17).
  * Usa el theme oscuro de la app con un diseño limpio.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   Alert,
   StatusBar,
   Image,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,9 +31,29 @@ export default function AuthScreen() {
   const [username, setUsername] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  
+
   // true = Login, false = Registro
   const [isLogin, setIsLogin] = useState(true);
+
+  // Animación de Zoom Out al cargar la pantalla de login
+  const logoScale = useRef(new Animated.Value(1.3)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(logoScale, {
+        toValue: 1,
+        friction: 6,
+        tension: 35,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   const handleAuth = async () => {
     if (!email.trim() || !password.trim()) {
@@ -68,7 +89,7 @@ export default function AuthScreen() {
       } else if (data.session == null) {
         // Si Supabase no devuelve sesión inmediata, es porque la confirmación de email está activa.
         Alert.alert(
-          '¡Casi listo!', 
+          '¡Casi listo!',
           'Ve a tu panel de Supabase > Authentication > Providers > Email y APAGA la opción "Confirm email" para que el registro sea directo sin verificar correos.'
         );
       }
@@ -84,20 +105,35 @@ export default function AuthScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-      <KeyboardAvoidingView 
-        style={styles.container} 
+      <KeyboardAvoidingView
+        style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.content}>
-          
+
           <View style={styles.header}>
-            <Image 
-              source={require('../../../assets/logo.png')} 
-              style={{ width: 80, height: 80, marginBottom: Spacing.sm }} 
-              resizeMode="contain" 
-            />
-            <Text style={styles.title}>MIS FINANZAS</Text>
-            <Text style={styles.subtitle}>Tu presupuesto inteligente</Text>
+            <Animated.View
+              style={[
+                styles.logoWrapper,
+                {
+                  opacity: logoOpacity,
+                  transform: [{ scale: logoScale }],
+                },
+              ]}
+            >
+              {/* Difuminado exterior suave */}
+              <View style={styles.whiteGlowOuter} />
+              {/* Círculo blanco detrás del gato */}
+              <View style={styles.whiteCircle} />
+
+              <Image
+                source={require('../../../assets/logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            </Animated.View>
+            <Text style={styles.title}>Aphelios</Text>
+            <Text style={styles.subtitle}>Todo comienza hoy</Text>
           </View>
 
           <View style={styles.form}>
@@ -139,13 +175,13 @@ export default function AuthScreen() {
                   value={password}
                   onChangeText={setPassword}
                 />
-                <TouchableOpacity 
-                  style={styles.eyeBtn} 
+                <TouchableOpacity
+                  style={styles.eyeBtn}
                   onPress={() => setShowPassword(!showPassword)}
                   activeOpacity={0.7}
                 >
-                  <Image 
-                    source={showPassword ? require('../../../assets/no view.png') : require('../../../assets/view.png')} 
+                  <Image
+                    source={showPassword ? require('../../../assets/no view.png') : require('../../../assets/view.png')}
                     style={{ width: 24, height: 24, tintColor: colors.textPrimary }}
                     resizeMode="contain"
                   />
@@ -153,8 +189,8 @@ export default function AuthScreen() {
               </View>
             </View>
 
-            <TouchableOpacity 
-              onPress={handleAuth} 
+            <TouchableOpacity
+              onPress={handleAuth}
               disabled={loading}
               activeOpacity={0.8}
               style={styles.btnWrapper}
@@ -175,14 +211,14 @@ export default function AuthScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.switchBtn} 
+            <TouchableOpacity
+              style={styles.switchBtn}
               onPress={() => setIsLogin(!isLogin)}
               disabled={loading}
             >
               <Text style={styles.switchText}>
-                {isLogin 
-                  ? '¿No tienes cuenta? Regístrate' 
+                {isLogin
+                  ? '¿No tienes cuenta? Regístrate'
                   : '¿Ya tienes cuenta? Inicia sesión'}
               </Text>
             </TouchableOpacity>
@@ -195,9 +231,9 @@ export default function AuthScreen() {
 }
 
 const getStyles = (colors: ThemeColors) => StyleSheet.create({
-  safe: { 
-    flex: 1, 
-    backgroundColor: colors.bg 
+  safe: {
+    flex: 1,
+    backgroundColor: colors.bg
   },
   container: {
     flex: 1,
@@ -213,6 +249,31 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
   header: {
     alignItems: 'center',
     gap: Spacing.xs,
+  },
+  logoWrapper: {
+    width: 90,
+    height: 90,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xs,
+  },
+  whiteGlowOuter: {
+    position: 'absolute',
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  whiteCircle: {
+    position: 'absolute',
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
+    backgroundColor: '#ffffff',
+  },
+  logo: {
+    width: 90,
+    height: 90,
   },
   emoji: {
     fontSize: 48,
