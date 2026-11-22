@@ -104,19 +104,21 @@ import AnimatedSplashScreen from '../components/ui/AnimatedSplashScreen';
 
 export default function RootNavigator() {
   const { session, loading } = useAuth();
-  const isFirstMount = useRef(true);
+  const wasLoggedOut = useRef(false);
   const [showAuthSplash, setShowAuthSplash] = useState(false);
 
   useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false;
-      return;
+    if (!loading) {
+      if (!session) {
+        // El usuario está en la pantalla de Auth sin sesión activa
+        wasLoggedOut.current = true;
+      } else if (session && wasLoggedOut.current) {
+        // El usuario acaba de iniciar sesión manualmente desde AuthScreen
+        wasLoggedOut.current = false;
+        setShowAuthSplash(true);
+      }
     }
-    // Cuando el usuario inicia sesión o se registra con éxito
-    if (session) {
-      setShowAuthSplash(true);
-    }
-  }, [session]);
+  }, [session, loading]);
 
   // If loading session state from AsyncStorage, you might want to return null or a splash screen
   if (loading) return null;

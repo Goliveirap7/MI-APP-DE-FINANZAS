@@ -250,9 +250,10 @@ export default function CategoryDetailScreen() {
         </View>
       )}
 
-      {/* Hero Card de Presupuesto vs Real de la Categoría */}
+      {/* Hero Card de Presupuesto vs Real de la Categoría y Desglose de Sobres */}
       {tipo === 'egreso' && categoriaId && (
         <View style={styles.catHeroCard}>
+          {/* Fila principal de resumen de la categoría */}
           <View style={styles.catHeroRow}>
             <View>
               <Text style={styles.catHeroLabel}>Presupuestado</Text>
@@ -288,30 +289,73 @@ export default function CategoryDetailScreen() {
             </View>
           )}
 
+          {/* Tabla ordenada de sobres (conceptos) - diseño estilo Excel */}
           {catConceptos.length > 0 && (
-            <View style={styles.catConceptosBox}>
-              <Text style={styles.catConceptosTitle}>Sobres de esta categoría:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-                {catConceptos.map((conc) => {
-                  const isOver = conc.real > conc.presupuesto && conc.presupuesto > 0;
-                  return (
-                    <View key={conc.id} style={styles.conceptPill}>
-                      <Text style={styles.conceptPillTitle}>{conc.nombre}</Text>
-                      <Text style={styles.conceptPillMonto}>
-                        {formatCurrency(conc.real)}
-                        {conc.presupuesto > 0 && (
-                          <Text style={{ color: colors.textMuted }}> / {formatCurrency(conc.presupuesto)}</Text>
-                        )}
-                      </Text>
-                      {conc.presupuesto > 0 && (
-                        <Text style={[styles.conceptPillDiff, { color: isOver ? colors.expense : colors.income }]}>
-                          {isOver ? '⚠️ Excedido' : `+${formatCurrency(conc.presupuesto - conc.real)}`}
-                        </Text>
-                      )}
-                    </View>
-                  );
-                })}
-              </ScrollView>
+            <View style={styles.catTableWrapper}>
+              <View style={styles.catTableHeaderRow}>
+                <Text style={[styles.catTableColHeader, { flex: 1.3, textAlign: 'left' }]}>
+                  {specificCat || 'Sobre'}
+                </Text>
+                <Text style={[styles.catTableColHeader, { flex: 1.1, textAlign: 'right' }]}>
+                  Presupuestado
+                </Text>
+                <Text style={[styles.catTableColHeader, { flex: 1, textAlign: 'right' }]}>
+                  Gastado
+                </Text>
+                <Text style={[styles.catTableColHeader, { flex: 1.1, textAlign: 'right' }]}>
+                  Restante
+                </Text>
+              </View>
+
+              {catConceptos.map((conc, idx) => {
+                const diff = conc.presupuesto - conc.real;
+                const isOver = conc.real > conc.presupuesto && conc.presupuesto > 0;
+                const isEven = idx % 2 === 0;
+
+                return (
+                  <View
+                    key={conc.id}
+                    style={[
+                      styles.catTableRow,
+                      isEven && { backgroundColor: colors.bgInput + '40' },
+                      idx === catConceptos.length - 1 && { borderBottomWidth: 0 },
+                    ]}
+                  >
+                    {/* Nombre del sobre / concepto */}
+                    <Text style={[styles.catTableCellName, { flex: 1.3 }]} numberOfLines={1}>
+                      {conc.nombre}
+                    </Text>
+
+                    {/* Presupuestado */}
+                    <Text style={[styles.catTableCellPresupuesto, { flex: 1.1 }]}>
+                      {conc.presupuesto > 0 ? formatCurrency(conc.presupuesto) : '-'}
+                    </Text>
+
+                    {/* Gastado */}
+                    <Text style={[
+                      styles.catTableCellReal,
+                      { flex: 1, color: conc.real > 0 ? colors.expense : colors.textMuted }
+                    ]}>
+                      {conc.real > 0 ? formatCurrency(conc.real) : '-'}
+                    </Text>
+
+                    {/* Restante */}
+                    <Text style={[
+                      styles.catTableCellDiff,
+                      {
+                        flex: 1.1,
+                        color: conc.presupuesto > 0
+                          ? (isOver ? colors.expense : colors.income)
+                          : colors.textMuted
+                      }
+                    ]}>
+                      {conc.presupuesto > 0
+                        ? `${diff >= 0 ? '+' : '-'}${formatCurrency(Math.abs(diff))}`
+                        : '-'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
         </View>
@@ -557,43 +601,57 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
     height: '100%',
     borderRadius: Radius.full,
   },
-  catConceptosBox: {
-    marginTop: Spacing.sm,
+  // Tabla ordenada de sobres (conceptos)
+  catTableWrapper: {
+    marginTop: Spacing.md,
     paddingTop: Spacing.xs,
     borderTopWidth: 1,
-    borderTopColor: colors.border + '40',
+    borderTopColor: colors.border + '60',
   },
-  catConceptosTitle: {
+  catTableHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bgInput + '80',
+    borderRadius: Radius.sm,
+  },
+  catTableColHeader: {
     fontSize: FontSize.xs - 1,
     fontWeight: FontWeight.bold,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
+    letterSpacing: 0.3,
   },
-  conceptPill: {
-    backgroundColor: colors.bgInput,
-    borderRadius: Radius.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minWidth: 100,
+  catTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '20',
   },
-  conceptPillTitle: {
+  catTableCellName: {
     fontSize: FontSize.xs,
     color: colors.textPrimary,
-    fontWeight: FontWeight.semibold,
+    fontWeight: FontWeight.medium,
   },
-  conceptPillMonto: {
-    fontSize: FontSize.xs - 1,
-    color: colors.textPrimary,
+  catTableCellPresupuesto: {
+    fontSize: FontSize.xs,
+    color: colors.textSecondary,
+    fontWeight: FontWeight.semibold,
+    textAlign: 'right',
+  },
+  catTableCellReal: {
+    fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
-    marginTop: 2,
+    textAlign: 'right',
   },
-  conceptPillDiff: {
-    fontSize: FontSize.xs - 2,
-    fontWeight: FontWeight.semibold,
-    marginTop: 1,
+  catTableCellDiff: {
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    textAlign: 'right',
   },
 });

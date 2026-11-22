@@ -6,7 +6,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDatabase } from '../db/database';
 import { getCatEgresoByEspacio, type CatEgreso, type ConceptoDetalle } from '../db/repositories/categorias';
-import { getPresupuestoByMes, getPresupuestoConceptosByMes, upsertPresupuestoMes } from '../db/repositories/presupuesto';
+import {
+  getPresupuestoByMes,
+  getPresupuestoConceptosByMes,
+  getPresupuestoMesConfig,
+  setPresupuestoMesConfig,
+  upsertPresupuestoMes,
+} from '../db/repositories/presupuesto';
 import { getSumByTipoMes, getSumByCategoriaMes, getSumByConceptoMes, getSaldoHistoricoHasta } from '../db/repositories/transacciones';
 import { DEFAULT_ESPACIO_ID } from '../db/seed';
 
@@ -35,15 +41,16 @@ export interface BudgetSummaryItem {
 }
 
 export interface UsePresupuesto {
-  disponible:   number;
+  disponible:   number;        // Saldo total presupuestado para el mes (monto objetivo configurable)
   rows:         BudgetRow[];
   totalPct:     number;        // suma de porcentajes
-  totalMonto:   number;        // suma de montos
+  totalMonto:   number;        // suma de montos asignados
   loading:      boolean;
   saving:       boolean;
   hasExistingBudget: boolean;
   existingBudgetSummary: BudgetSummaryItem[];
   hasDraft:     boolean;
+  setMontoPresupuestar: (nuevoMonto: number) => void;
   updatePct:    (catId: string, nuevoPct: number) => void;
   updateMonto:  (catId: string, nuevoMonto: number) => void;
   updateConceptMonto: (catId: string, conceptoId: string, nuevoMonto: number) => void;
@@ -54,11 +61,17 @@ export interface UsePresupuesto {
 
 // ── Helper clave borrador ─────────────────────────────────────────────────────
 const getBudgetDraftKey = (espacioId: string, mes: string) => `@aphelios_budget_draft_${espacioId}_${mes}`;
+const getBudgetMainKey = (espacioId: string, mes: string) => `@aphelios_budget_main_${espacioId}_${mes}`;
 
 interface DraftCategoryData {
   porcentaje: number;
   monto_presupuesto: number;
   conceptos?: Record<string, number>;
+}
+
+interface FullDraftData {
+  montoPresupuestoMes?: number;
+  categories: Record<string, DraftCategoryData>;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -80,14 +93,8 @@ export function usePresupuesto(
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // ── Disponible del mes (saldo acumulado real + ingresos de este mes) ──
-      const saldoInicial = await getSaldoHistoricoHasta(db, mes, espacioId);
-      const ingMes       = await getSumByTipoMes(db, mes, 'ingreso', espacioId);
-      const disp         = Math.max(saldoInicial + ingMes, 0);
-      setDisponible(disp);
-
       // ── Categorías, conceptos y sus presupuestos guardados ───────────────
-      const [allCats, presupuestos, reales, allConceptos, presupConceptos, realesConceptos] = await Promise.all([
+      const [allCats, presupuestos, reales, allConceptos, presupConceptos, realesConceptos, savedConfigMonto] = await Promise.all([
         getCatEgresoByEspacio(db, espacioId),
         getPresupuestoByMes(db, mes, espacioId),
         getSumByCategoriaMes(db, mes, espacioId),
@@ -99,6 +106,7 @@ export function usePresupuesto(
         ),
         getPresupuestoConceptosByMes(db, mes, espacioId),
         getSumByConceptoMes(db, mes, undefined, espacioId),
+        getPresupuestoMesConfig(db, mes, espacioId),
       ]);
 
       // Las transferencias son movimientos internos, no deben presupuestarse
@@ -115,6 +123,26 @@ export function usePresupuesto(
 
       const hasBudget = presupuestosValidos.some((p) => p.monto_asignado > 0 || p.porcentaje_asignado > 0);
       setHasExistingBudget(hasBudget);
+
+      // ── Saldo a presupuestar del mes ─────────────────────────────────────────
+      // 1. Si existe guardado en DB (presupuesto_mes_config)
+      // 2. Si no, buscar en AsyncStorage de clave main
+      // 3. Si no, si hay categorías guardadas, tomar la suma de montos
+      // 4. Si no, 0 (el usuario lo ingresará manualmente)
+      let disp = 0;
+      if (savedConfigMonto !== null && savedConfigMonto > 0) {
+        disp = savedConfigMonto;
+      } else {
+        const cachedMain = await AsyncStorage.getItem(getBudgetMainKey(espacioId, mes));
+        if (cachedMain && parseFloat(cachedMain) > 0) {
+          disp = parseFloat(cachedMain);
+        } else {
+          const sumSaved = presupuestosValidos.reduce((acc, p) => acc + (p.monto_asignado || 0), 0);
+          if (sumSaved > 0) {
+            disp = sumSaved;
+          }
+        }
+      }
 
       // Resumen del presupuesto actualmente guardado (para confirmación)
       const summary: BudgetSummaryItem[] = cats
@@ -158,7 +186,7 @@ export function usePresupuesto(
         if (saved) {
           if (saved.monto_asignado > 0) {
             monto = saved.monto_asignado;
-          } else if (saved.porcentaje_asignado > 0) {
+          } else if (saved.porcentaje_asignado > 0 && disp > 0) {
             monto = saved.porcentaje_asignado * disp;
           }
         }
@@ -188,10 +216,16 @@ export function usePresupuesto(
       try {
         const draftRaw = await AsyncStorage.getItem(getBudgetDraftKey(espacioId, mes));
         if (draftRaw) {
-          const draftMap: Record<string, DraftCategoryData> = JSON.parse(draftRaw);
+          const parsedDraft = JSON.parse(draftRaw);
+          // Compatibilidad: el borrador puede ser el nuevo FullDraftData o el antiguo DraftCategoryData
+          const draftCategories: Record<string, DraftCategoryData> = parsedDraft.categories || parsedDraft;
+          if (parsedDraft.montoPresupuestoMes !== undefined && parsedDraft.montoPresupuestoMes > 0) {
+            disp = parsedDraft.montoPresupuestoMes;
+          }
+
           let appliedDraft = false;
           built = built.map((row) => {
-            const entry = draftMap[row.categoria.id_local];
+            const entry = draftCategories[row.categoria.id_local];
             if (entry) {
               appliedDraft = true;
               const nextConceptos = row.conceptos.map((c) => {
@@ -208,7 +242,7 @@ export function usePresupuesto(
 
               return {
                 ...row,
-                porcentaje:        entry.porcentaje,
+                porcentaje:        disp > 0 ? Number(((entry.monto_presupuesto / disp) * 100).toFixed(1)) : entry.porcentaje,
                 monto_presupuesto: entry.monto_presupuesto,
                 diferencia:        entry.monto_presupuesto - row.monto_real,
                 conceptos:         nextConceptos,
@@ -216,7 +250,7 @@ export function usePresupuesto(
             }
             return row;
           });
-          setHasDraft(appliedDraft);
+          setHasDraft(appliedDraft || (parsedDraft.montoPresupuestoMes !== undefined));
         } else {
           setHasDraft(false);
         }
@@ -224,6 +258,7 @@ export function usePresupuesto(
         console.warn('[usePresupuesto] Error cargando borrador local:', e);
       }
 
+      setDisponible(disp);
       setRows(built);
     } finally {
       setLoading(false);
@@ -233,7 +268,7 @@ export function usePresupuesto(
   useEffect(() => { load(); }, [load]);
 
   // Guardar borrador en AsyncStorage
-  const persistDraft = useCallback((updatedRows: BudgetRow[]) => {
+  const persistDraft = useCallback((updatedRows: BudgetRow[], currentDisponible: number) => {
     try {
       const draftMap: Record<string, DraftCategoryData> = {};
       updatedRows.forEach((r) => {
@@ -247,12 +282,33 @@ export function usePresupuesto(
           conceptos: concDraft,
         };
       });
-      AsyncStorage.setItem(getBudgetDraftKey(espacioId, mes), JSON.stringify(draftMap));
+      const payload: FullDraftData = {
+        montoPresupuestoMes: currentDisponible,
+        categories: draftMap,
+      };
+      AsyncStorage.setItem(getBudgetDraftKey(espacioId, mes), JSON.stringify(payload));
       setHasDraft(true);
     } catch (e) {
       console.warn('[usePresupuesto] Error guardando borrador:', e);
     }
   }, [espacioId, mes]);
+
+  // ── Cambiar monto global a presupuestar durante el mes ───────────────────
+  const setMontoPresupuestar = useCallback((nuevoMonto: number) => {
+    const validMonto = Math.max(0, nuevoMonto);
+    setDisponible(validMonto);
+    setRows((prev) => {
+      const next = prev.map((r) => {
+        const pct = validMonto > 0 ? Number(((r.monto_presupuesto / validMonto) * 100).toFixed(1)) : 0;
+        return {
+          ...r,
+          porcentaje: pct,
+        };
+      });
+      persistDraft(next, validMonto);
+      return next;
+    });
+  }, [persistDraft]);
 
   // ── Actualizar % de categoría (guardando borrador) ───────────────────────
   const updatePct = useCallback((catId: string, nuevoPct: number) => {
@@ -268,7 +324,7 @@ export function usePresupuesto(
           diferencia:        monto - r.monto_real,
         };
       });
-      persistDraft(next);
+      persistDraft(next, disponible);
       return next;
     });
   }, [disponible, persistDraft]);
@@ -287,7 +343,7 @@ export function usePresupuesto(
           diferencia:        monto - r.monto_real,
         };
       });
-      persistDraft(next);
+      persistDraft(next, disponible);
       return next;
     });
   }, [disponible, persistDraft]);
@@ -319,7 +375,7 @@ export function usePresupuesto(
           conceptos: nextConceptos,
         };
       });
-      persistDraft(next);
+      persistDraft(next, disponible);
       return next;
     });
   }, [disponible, persistDraft]);
@@ -329,9 +385,12 @@ export function usePresupuesto(
 
   // ── Guardar en SQLite ──────────────────────────────────────────────────
   const guardar = useCallback(async () => {
+    if (disponible <= 0) {
+      throw new Error('Ingresa primero el saldo a presupuestar durante el mes.');
+    }
     const errorMonto = Math.abs(totalMonto - disponible);
-    if (disponible > 0 && errorMonto > 0.1) {
-      throw new Error(`Has asignado S/ ${totalMonto.toFixed(2)} pero tienes S/ ${disponible.toFixed(2)} disponibles. Por favor cuadra el presupuesto.`);
+    if (errorMonto > 0.1 && totalMonto > disponible) {
+      throw new Error(`Has asignado S/ ${totalMonto.toFixed(2)} pero tu saldo a presupuestar es S/ ${disponible.toFixed(2)}. Por favor ajusta los montos.`);
     }
     setSaving(true);
     try {
@@ -346,17 +405,23 @@ export function usePresupuesto(
         }
       }
 
+      // 1. Guardar la meta del presupuesto mensual
+      await setPresupuestoMesConfig(db, mes, disponible, espacioId);
+      await AsyncStorage.setItem(getBudgetMainKey(espacioId, mes), disponible.toString());
+
+      // 2. Guardar las categorías y conceptos
       await upsertPresupuestoMes(
         db,
         mes,
         rows.map((r) => ({
           categoria_egreso_id:  r.categoria.id_local,
-          porcentaje_asignado:  r.porcentaje / 100,
+          porcentaje_asignado:  disponible > 0 ? r.monto_presupuesto / disponible : r.porcentaje / 100,
           monto_asignado:       r.monto_presupuesto,
         })),
         flatConceptos,
         espacioId,
       );
+
       // Limpiar borrador al guardar exitosamente
       await AsyncStorage.removeItem(getBudgetDraftKey(espacioId, mes));
       setHasDraft(false);
@@ -386,6 +451,7 @@ export function usePresupuesto(
     hasExistingBudget,
     existingBudgetSummary,
     hasDraft,
+    setMontoPresupuestar,
     updatePct,
     updateMonto,
     updateConceptMonto,

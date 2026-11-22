@@ -90,9 +90,19 @@ export function DbProvider({ children }: { children: ReactNode }) {
               UNIQUE (espacio_id, mes, concepto_detalle_id)
             );
             CREATE INDEX IF NOT EXISTS idx_presup_concepto_mes ON presupuesto_concepto (espacio_id, mes, categoria_egreso_id);
+
+            CREATE TABLE IF NOT EXISTS presupuesto_mes_config (
+              id_local              TEXT PRIMARY KEY,
+              espacio_id            TEXT NOT NULL REFERENCES espacios(id_local) ON DELETE CASCADE,
+              mes                   TEXT NOT NULL,
+              monto_presupuestado   REAL NOT NULL DEFAULT 0,
+              fecha_modificacion    TEXT NOT NULL,
+              eliminado             INTEGER NOT NULL DEFAULT 0,
+              UNIQUE (espacio_id, mes)
+            );
           `);
         } catch (e: any) {
-          console.warn('[DB] Migración presupuesto_concepto falló:', e);
+          console.warn('[DB] Migración presupuesto_concepto o config falló:', e);
         }
 
         // Sembrar catálogo inicial si la DB está vacía

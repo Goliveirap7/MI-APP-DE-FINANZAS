@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS presupuesto_concepto (
   UNIQUE (espacio_id, mes, concepto_detalle_id)
 );
 
+-- ── Configuración de presupuesto total del mes ──────────────────────────────
+CREATE TABLE IF NOT EXISTS presupuesto_mes_config (
+  id_local              TEXT PRIMARY KEY,
+  espacio_id            TEXT NOT NULL REFERENCES espacios(id_local) ON DELETE CASCADE,
+  mes                   TEXT NOT NULL,   -- 'YYYY-MM-01'
+  monto_presupuestado   REAL NOT NULL DEFAULT 0,
+  fecha_modificacion    TEXT NOT NULL,
+  eliminado             INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (espacio_id, mes)
+);
+
 -- ── Transacciones ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS transacciones (
   id_local              TEXT PRIMARY KEY,

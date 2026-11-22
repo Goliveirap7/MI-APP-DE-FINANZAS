@@ -69,6 +69,12 @@ export default function BudgetScreen() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
+  // Estados para el saldo principal a presupuestar durante el mes
+  const [showMainBudgetModal, setShowMainBudgetModal] = useState(false);
+  const [mainBudgetInput, setMainBudgetInput] = useState('');
+  const [showMainChangeWarningModal, setShowMainChangeWarningModal] = useState(false);
+  const [pendingMainBudget, setPendingMainBudget] = useState(0);
+
   const toggleExpand = (catId: string) => {
     triggerSoftTap();
     setExpandedCats((prev) => ({ ...prev, [catId]: !prev[catId] }));
@@ -84,6 +90,7 @@ export default function BudgetScreen() {
     hasExistingBudget,
     existingBudgetSummary,
     hasDraft,
+    setMontoPresupuestar,
     updatePct,
     updateMonto,
     updateConceptMonto,
@@ -109,9 +116,50 @@ export default function BudgetScreen() {
     ? colors.income
     : colors.warning;
 
+  // Abrir modal para definir o cambiar el saldo a presupuestar
+  const handleOpenMainBudgetModal = () => {
+    triggerSoftTap();
+    setMainBudgetInput(disponible > 0 ? disponible.toString() : '');
+    setShowMainBudgetModal(true);
+  };
+
+  // Guardar el saldo a presupuestar ingresado por el usuario
+  const handleSaveMainBudget = () => {
+    triggerSoftTap();
+    const val = parseFloat(mainBudgetInput.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      showToast('Ingresa un monto válido mayor a 0');
+      return;
+    }
+
+    // Si ya hay categorías asignadas y el monto está cambiando significativamente, mostrar modal de advertencia
+    if (totalMonto > 0 && Math.abs(val - disponible) > 0.01) {
+      setPendingMainBudget(val);
+      setShowMainBudgetModal(false);
+      setShowMainChangeWarningModal(true);
+      return;
+    }
+
+    setMontoPresupuestar(val);
+    setShowMainBudgetModal(false);
+    showToast('Saldo a presupuestar actualizado.');
+  };
+
+  // Confirmar el cambio tras la advertencia de recalcular porcentajes
+  const handleConfirmMainBudgetChange = () => {
+    triggerSoftTap();
+    setShowMainChangeWarningModal(false);
+    setMontoPresupuestar(pendingMainBudget);
+    showToast('Saldo actualizado. Revisa los porcentajes de tus categorías.');
+  };
+
   const handleGuardar = async () => {
-    if (disponible > 0 && !pctCompleto) {
-      showToast(`Has asignado S/ ${totalMonto.toFixed(2)} pero tienes S/ ${disponible.toFixed(2)} disponibles.`);
+    if (disponible <= 0) {
+      showToast('Ingresa primero el saldo a presupuestar durante el mes.');
+      return;
+    }
+    if (totalMonto > disponible) {
+      showToast(`Has asignado S/ ${totalMonto.toFixed(2)} pero tu saldo a presupuestar es S/ ${disponible.toFixed(2)}.`);
       return;
     }
     // Si ya existe un presupuesto previo asignado, mostrar modal de confirmación con el listado
@@ -208,13 +256,32 @@ export default function BudgetScreen() {
             style={styles.heroCard}
           >
             <View style={styles.heroRow}>
-              {/* Disponible */}
-              <View style={styles.heroCol}>
-                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>Disponible</Text>
-                <Text style={[styles.heroAmount, { color: '#ffffff' }]}>
-                  {formatCurrency(disponible)}
+              {/* Saldo a presupuestar */}
+              <TouchableOpacity
+                style={[styles.heroCol, { alignItems: 'flex-start' }]}
+                onPress={handleOpenMainBudgetModal}
+                activeOpacity={0.75}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.85)' }]}>
+                    Saldo a presupuestar
+                  </Text>
+                  <Text style={{ fontSize: 12 }}>✏️</Text>
+                </View>
+                <Text style={[
+                  styles.heroAmount,
+                  {
+                    color: disponible > 0 ? '#ffffff' : colors.warning,
+                    fontSize: disponible > 0 ? FontSize.xl : FontSize.md,
+                    marginTop: 2,
+                  }
+                ]}>
+                  {disponible > 0 ? formatCurrency(disponible) : '+ Ingresar saldo'}
                 </Text>
-              </View>
+                <Text style={{ fontSize: FontSize.xs - 2, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
+                  Toca para cambiar
+                </Text>
+              </TouchableOpacity>
 
               {/* Divisor */}
               <View style={styles.heroDivider} />
@@ -227,6 +294,9 @@ export default function BudgetScreen() {
                   { color: pctSobrepasado ? colors.expense : pctCompleto ? colors.income : colors.warning },
                 ]}>
                   {formatCurrency(totalMonto)}
+                </Text>
+                <Text style={{ fontSize: FontSize.xs - 2, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
+                  {disponible > 0 ? `${((totalMonto / disponible) * 100).toFixed(0)}% distribuido` : 'Sin base'}
                 </Text>
               </View>
             </View>
@@ -246,12 +316,12 @@ export default function BudgetScreen() {
 
             <Text style={[styles.globalStatus, { color: globalBarColor }]}>
               {disponible === 0
-                ? 'No hay dinero disponible este mes'
+                ? '👆 Toca en "+ Ingresar saldo" para definir el monto del mes'
                 : pctCompleto
-                ? '✨ Distribución completa – listo para guardar'
+                ? '✨ Todo tu presupuesto está asignado al 100% – listo para guardar'
                 : pctSobrepasado
-                ? `⚠️ Sobrepasado en S/ ${(totalMonto - disponible).toFixed(2)} – reduce alguna categoría`
-                : `Faltan S/ ${(disponible - totalMonto).toFixed(2)} por asignar`}
+                ? `⚠️ Sobrepasado en S/ ${(totalMonto - disponible).toFixed(2)} – ajusta alguna categoría`
+                : `Faltan S/ ${(disponible - totalMonto).toFixed(2)} por asignar (${disponible > 0 ? ((1 - totalMonto / disponible) * 100).toFixed(0) : 0}%)`}
             </Text>
           </LinearGradient>
         )}
@@ -467,6 +537,136 @@ export default function BudgetScreen() {
                 }}
               >
                 <Text style={styles.modalBtnTextConfirm}>Aceptar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL: INGRESAR SALDO A PRESUPUESTAR ──────── */}
+      <Modal
+        visible={showMainBudgetModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMainBudgetModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Saldo a presupuestar</Text>
+            <Text style={styles.modalSub}>
+              Ingresa el monto que calculas tener o que deseas presupuestar para tus gastos de este mes:
+            </Text>
+
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: colors.bgInput,
+              borderRadius: Radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              paddingHorizontal: Spacing.md,
+              marginVertical: Spacing.md,
+              height: 52,
+            }}>
+              <Text style={{ fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: colors.primary, marginRight: 8 }}>
+                S/
+              </Text>
+              <TextInput
+                style={{
+                  flex: 1,
+                  fontSize: FontSize.xl,
+                  fontWeight: FontWeight.bold,
+                  color: colors.textPrimary,
+                  paddingVertical: 0,
+                }}
+                value={mainBudgetInput}
+                onChangeText={setMainBudgetInput}
+                placeholder="0.00"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                autoFocus
+                selectTextOnFocus
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                activeOpacity={0.7}
+                onPress={() => {
+                  triggerSoftTap();
+                  setShowMainBudgetModal(false);
+                }}
+              >
+                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalBtnConfirm}
+                activeOpacity={0.8}
+                onPress={handleSaveMainBudget}
+              >
+                <Text style={styles.modalBtnTextConfirm}>Aplicar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL: ADVERTENCIA RECALCULAR PORCENTAJES ──── */}
+      <Modal
+        visible={showMainChangeWarningModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMainChangeWarningModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.xs }}>
+              <Text style={{ fontSize: 22 }}>⚠️</Text>
+              <Text style={[styles.modalTitle, { marginBottom: 0, flex: 1 }]}>
+                Actualizar presupuesto
+              </Text>
+            </View>
+            <Text style={[styles.modalSub, { marginTop: 4, color: colors.warning, fontWeight: FontWeight.semibold }]}>
+              Vas a cambiar el saldo del mes a S/ {pendingMainBudget.toFixed(2)}
+            </Text>
+
+            <View style={{
+              backgroundColor: colors.bg,
+              borderRadius: Radius.md,
+              padding: Spacing.md,
+              borderWidth: 1,
+              borderColor: colors.border + '80',
+              marginVertical: Spacing.sm,
+            }}>
+              <Text style={{ color: colors.textSecondary, fontSize: FontSize.sm, lineHeight: 20 }}>
+                Al cambiar el saldo presupuestado durante el mes, deberás <Text style={{ color: colors.textPrimary, fontWeight: FontWeight.bold }}>actualizar el porcentaje o monto</Text> de cada una de tus categorías para que coincidan con este nuevo total.
+              </Text>
+            </View>
+
+            <Text style={styles.modalQuestion}>
+              ¿Deseas continuar y aplicar el nuevo saldo?
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                activeOpacity={0.7}
+                onPress={() => {
+                  triggerSoftTap();
+                  setShowMainChangeWarningModal(false);
+                }}
+              >
+                <Text style={styles.modalBtnTextCancel}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalBtnConfirm}
+                activeOpacity={0.8}
+                onPress={handleConfirmMainBudgetChange}
+              >
+                <Text style={styles.modalBtnTextConfirm}>Continuar</Text>
               </TouchableOpacity>
             </View>
           </View>

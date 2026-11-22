@@ -74,6 +74,49 @@ export async function getPresupuestoConceptosByCategoria(
   );
 }
 
+/** Obtener la meta o saldo presupuestado configurado manualmente para el mes */
+export async function getPresupuestoMesConfig(
+  db: SQLiteDatabase,
+  mes: string,
+  espacioId = DEFAULT_ESPACIO_ID,
+): Promise<number | null> {
+  const row = await db.getFirstAsync<{ monto_presupuestado: number }>(
+    `SELECT monto_presupuestado FROM presupuesto_mes_config
+      WHERE espacio_id = ? AND mes = ? AND eliminado = 0`,
+    [espacioId, mes],
+  );
+  return row ? row.monto_presupuestado : null;
+}
+
+/** Guardar la meta o saldo presupuestado configurado manualmente para el mes */
+export async function setPresupuestoMesConfig(
+  db: SQLiteDatabase,
+  mes: string,
+  monto: number,
+  espacioId = DEFAULT_ESPACIO_ID,
+): Promise<void> {
+  const ts = new Date().toISOString();
+  const existing = await db.getFirstAsync<{ id_local: string }>(
+    `SELECT id_local FROM presupuesto_mes_config WHERE espacio_id = ? AND mes = ?`,
+    [espacioId, mes],
+  );
+  if (existing) {
+    await db.runAsync(
+      `UPDATE presupuesto_mes_config 
+          SET monto_presupuestado = ?, fecha_modificacion = ?, eliminado = 0 
+        WHERE id_local = ?`,
+      [monto, ts, existing.id_local],
+    );
+  } else {
+    await db.runAsync(
+      `INSERT INTO presupuesto_mes_config 
+         (id_local, espacio_id, mes, monto_presupuestado, fecha_modificacion, eliminado)
+       VALUES (?, ?, ?, ?, ?, 0)`,
+      [Crypto.randomUUID(), espacioId, mes, monto, ts],
+    );
+  }
+}
+
 /**
  * Guarda (upsert) el presupuesto completo de un mes sin violar la restricción UNIQUE.
  * Reemplaza o actualiza todos los registros de categoría y concepto en una transacción atómica.
