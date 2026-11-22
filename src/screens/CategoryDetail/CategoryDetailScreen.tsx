@@ -51,6 +51,8 @@ export default function CategoryDetailScreen() {
   const [transacciones, setTransacciones] = useState<TransaccionLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'todo' | 'subtipo' | 'item'>('todo');
+  const [selectedConceptFilter, setSelectedConceptFilter] = useState<string | null>(null);
   const [catPresupuesto, setCatPresupuesto] = useState<number>(0);
   const [catConceptos, setCatConceptos] = useState<ConceptBreakdown[]>([]);
 
@@ -120,37 +122,67 @@ export default function CategoryDetailScreen() {
     }
   }, [tipo, catIngreso, catEgreso]);
 
-  // Transacciones filtradas por el buscador
+  const getConceptName = useCallback((id: string | null | undefined) => {
+    if (!id) return null;
+    return catConceptos.find(c => c.id === id)?.nombre || null;
+  }, [catConceptos]);
+
+  // Transacciones filtradas por el buscador y selector de modo
   const filteredTransacciones = useMemo(() => {
+    let list = transacciones;
+
+    // Filtro rápido al tocar un sobre de la tabla superior
+    if (selectedConceptFilter) {
+      list = list.filter(t => t.concepto_detalle_id === selectedConceptFilter);
+    }
+
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return transacciones;
-    return transacciones.filter(t => {
+    if (!q) return list;
+
+    return list.filter(t => {
       const nota = (t.nota || '').toLowerCase();
+      const concName = (getConceptName(t.concepto_detalle_id) || '').toLowerCase();
       const catName = getCategoryName(tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id).toLowerCase();
       const montoStr = t.monto_real.toString();
       const fecha = (t.fecha || '').toLowerCase();
       const billetera = (t.billetera || '').toLowerCase();
-      return (
-        nota.includes(q) ||
-        catName.includes(q) ||
-        montoStr.includes(q) ||
-        fecha.includes(q) ||
-        billetera.includes(q)
-      );
-    });
-  }, [transacciones, searchQuery, tipo, getCategoryName]);
 
-  // Agrupar por nombre de categoría (excluyendo transferencias)
+      if (searchMode === 'item') {
+        return nota.includes(q);
+      } else if (searchMode === 'subtipo') {
+        return concName.includes(q);
+      } else {
+        // 'todo'
+        return (
+          nota.includes(q) ||
+          concName.includes(q) ||
+          catName.includes(q) ||
+          montoStr.includes(q) ||
+          fecha.includes(q) ||
+          billetera.includes(q)
+        );
+      }
+    });
+  }, [transacciones, searchQuery, searchMode, selectedConceptFilter, tipo, getCategoryName, getConceptName]);
+
+  // Agrupar: si estamos dentro de una categoría, agrupamos por Subtipo / Sobre. Si es general, por categoría.
   const grouped = useMemo(() => {
     return filteredTransacciones.reduce((acc, t) => {
-      const catId = tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id;
-      const catName = getCategoryName(catId);
-      if (catName.trim().toLowerCase() === 'transferencias') return acc;
-      if (!acc[catName]) acc[catName] = [];
-      acc[catName].push(t);
+      let groupTitle = '';
+      if (categoriaId) {
+        const concName = getConceptName(t.concepto_detalle_id);
+        groupTitle = concName ? concName : 'Sin sobre asignado';
+      } else {
+        const catId = tipo === 'ingreso' ? t.categoria_ingreso_id : t.categoria_egreso_id;
+        const catName = getCategoryName(catId);
+        if (catName.trim().toLowerCase() === 'transferencias') return acc;
+        groupTitle = catName;
+      }
+      if (!acc[groupTitle]) acc[groupTitle] = [];
+      acc[groupTitle].push(t);
       return acc;
     }, {} as Record<string, TransaccionLocal[]>);
-  }, [filteredTransacciones, tipo, getCategoryName]);
+  }, [filteredTransacciones, tipo, categoriaId, getCategoryName, getConceptName]);
 
   const sections = useMemo(() => {
     return Object.keys(grouped).map(title => ({
@@ -256,21 +288,15 @@ export default function CategoryDetailScreen() {
           {/* Fila principal de resumen de la categoría */}
           <View style={styles.catHeroRow}>
             <View>
-              <Text style={styles.catHeroLabel}>Presupuestado</Text>
+              <Text style={styles.catHeroLabel}>Presupuesto</Text>
               <Text style={styles.catHeroMonto}>
                 {formatCurrency(catPresupuesto)}
               </Text>
             </View>
-            <View style={{ alignItems: 'center' }}>
+            <View style={{ alignItems: 'flex-end' }}>
               <Text style={styles.catHeroLabel}>Gastado</Text>
               <Text style={[styles.catHeroMonto, { color: colors.expense }]}>
                 {formatCurrency(totalSpentInCat)}
-              </Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.catHeroLabel}>Restante</Text>
-              <Text style={[styles.catHeroMonto, { color: (catPresupuesto - totalSpentInCat) >= 0 ? colors.income : colors.expense }]}>
-                {(catPresupuesto - totalSpentInCat) >= 0 ? '+' : '-'}{formatCurrency(Math.abs(catPresupuesto - totalSpentInCat))}
               </Text>
             </View>
           </View>
@@ -293,41 +319,43 @@ export default function CategoryDetailScreen() {
           {catConceptos.length > 0 && (
             <View style={styles.catTableWrapper}>
               <View style={styles.catTableHeaderRow}>
-                <Text style={[styles.catTableColHeader, { flex: 1.3, textAlign: 'left' }]}>
+                <Text style={[styles.catTableColHeader, { flex: 1.5, textAlign: 'left' }]}>
                   {specificCat || 'Sobre'}
                 </Text>
-                <Text style={[styles.catTableColHeader, { flex: 1.1, textAlign: 'right' }]}>
-                  Presupuestado
+                <Text style={[styles.catTableColHeader, { flex: 1, textAlign: 'right' }]}>
+                  Presupuesto
                 </Text>
                 <Text style={[styles.catTableColHeader, { flex: 1, textAlign: 'right' }]}>
                   Gastado
                 </Text>
-                <Text style={[styles.catTableColHeader, { flex: 1.1, textAlign: 'right' }]}>
-                  Restante
-                </Text>
               </View>
 
               {catConceptos.map((conc, idx) => {
-                const diff = conc.presupuesto - conc.real;
-                const isOver = conc.real > conc.presupuesto && conc.presupuesto > 0;
                 const isEven = idx % 2 === 0;
+                const isSelected = selectedConceptFilter === conc.id;
 
                 return (
-                  <View
+                  <TouchableOpacity
                     key={conc.id}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      triggerSoftTap();
+                      setSelectedConceptFilter((prev) => (prev === conc.id ? null : conc.id));
+                    }}
                     style={[
                       styles.catTableRow,
                       isEven && { backgroundColor: colors.bgInput + '40' },
-                      idx === catConceptos.length - 1 && { borderBottomWidth: 0 },
+                      isSelected && { backgroundColor: colors.primary + '20', borderColor: colors.primary, borderWidth: 1, borderRadius: Radius.sm },
+                      idx === catConceptos.length - 1 && !isSelected && { borderBottomWidth: 0 },
                     ]}
                   >
                     {/* Nombre del sobre / concepto */}
-                    <Text style={[styles.catTableCellName, { flex: 1.3 }]} numberOfLines={1}>
-                      {conc.nombre}
+                    <Text style={[styles.catTableCellName, { flex: 1.5 }, isSelected && { color: colors.primary, fontWeight: FontWeight.bold }]} numberOfLines={1}>
+                      {isSelected ? `✓ ${conc.nombre}` : conc.nombre}
                     </Text>
 
-                    {/* Presupuestado */}
-                    <Text style={[styles.catTableCellPresupuesto, { flex: 1.1 }]}>
+                    {/* Presupuesto */}
+                    <Text style={[styles.catTableCellPresupuesto, { flex: 1 }]}>
                       {conc.presupuesto > 0 ? formatCurrency(conc.presupuesto) : '-'}
                     </Text>
 
@@ -338,22 +366,7 @@ export default function CategoryDetailScreen() {
                     ]}>
                       {conc.real > 0 ? formatCurrency(conc.real) : '-'}
                     </Text>
-
-                    {/* Restante */}
-                    <Text style={[
-                      styles.catTableCellDiff,
-                      {
-                        flex: 1.1,
-                        color: conc.presupuesto > 0
-                          ? (isOver ? colors.expense : colors.income)
-                          : colors.textMuted
-                      }
-                    ]}>
-                      {conc.presupuesto > 0
-                        ? `${diff >= 0 ? '+' : '-'}${formatCurrency(Math.abs(diff))}`
-                        : '-'}
-                    </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -361,13 +374,19 @@ export default function CategoryDetailScreen() {
         </View>
       )}
 
-      {/* Buscador de detalles */}
+      {/* Buscador de detalles y selector "Buscar por" */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder={`Buscar en ${tipo === 'ingreso' ? 'ingresos' : 'gastos'}...`}
+            placeholder={
+              searchMode === 'subtipo'
+                ? 'Buscar por subtipo / sobre...'
+                : searchMode === 'item'
+                ? 'Buscar por ítem / nota...'
+                : `Buscar en ${tipo === 'ingreso' ? 'ingresos' : 'gastos'}...`
+            }
             placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -387,6 +406,53 @@ export default function CategoryDetailScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Selector "Buscar por:" */}
+        <View style={styles.searchModeRow}>
+          <Text style={styles.searchModeLabel}>Buscar por:</Text>
+          <TouchableOpacity
+            onPress={() => { triggerSoftTap(); setSearchMode('todo'); }}
+            style={[styles.searchModeChip, searchMode === 'todo' && styles.searchModeChipActive]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.searchModeChipText, searchMode === 'todo' && styles.searchModeChipTextActive]}>
+              Todo
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { triggerSoftTap(); setSearchMode('subtipo'); }}
+            style={[styles.searchModeChip, searchMode === 'subtipo' && styles.searchModeChipActive]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.searchModeChipText, searchMode === 'subtipo' && styles.searchModeChipTextActive]}>
+              ✉️ Subtipo
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { triggerSoftTap(); setSearchMode('item'); }}
+            style={[styles.searchModeChip, searchMode === 'item' && styles.searchModeChipActive]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.searchModeChipText, searchMode === 'item' && styles.searchModeChipTextActive]}>
+              📝 Ítem
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Pastilla de sobre activo seleccionado */}
+        {selectedConceptFilter && (
+          <View style={styles.activeFilterRow}>
+            <Text style={styles.activeFilterLabel}>
+              Sobre filtrado: <Text style={{ fontWeight: FontWeight.bold, color: colors.primary }}>{getConceptName(selectedConceptFilter)}</Text>
+            </Text>
+            <TouchableOpacity onPress={() => { triggerSoftTap(); setSelectedConceptFilter(null); }}>
+              <Text style={styles.clearActiveFilterText}>✕ Quitar filtro</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {searchQuery.trim().length > 0 && (
           <View style={styles.searchMetaRow}>
             <Text style={styles.searchCountText}>
@@ -444,9 +510,18 @@ export default function CategoryDetailScreen() {
               >
                 <View style={styles.itemRow}>
                   <View style={styles.itemInfo}>
-                    <Text style={styles.itemDate}>
-                      {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'short' })}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <Text style={styles.itemDate}>
+                        {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'short' })}
+                      </Text>
+                      {Boolean(getConceptName(item.concepto_detalle_id)) && (
+                        <View style={styles.conceptBadge}>
+                          <Text style={styles.conceptBadgeText} numberOfLines={1}>
+                            ✉️ {getConceptName(item.concepto_detalle_id)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.itemDesc} numberOfLines={1}>
                       {item.nota || 'Sin nota'}
                     </Text>
@@ -653,5 +728,73 @@ const getStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
     textAlign: 'right',
+  },
+  // Selector "Buscar por"
+  searchModeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  searchModeLabel: {
+    fontSize: FontSize.xs - 1,
+    color: colors.textMuted,
+    marginRight: 2,
+  },
+  searchModeChip: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    backgroundColor: colors.bgInput,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchModeChipActive: {
+    backgroundColor: colors.primary + '25',
+    borderColor: colors.primary,
+  },
+  searchModeChipText: {
+    fontSize: FontSize.xs - 1,
+    color: colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  searchModeChipTextActive: {
+    color: colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+  activeFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.primary + '15',
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
+    marginTop: Spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+  },
+  activeFilterLabel: {
+    fontSize: FontSize.xs,
+    color: colors.textPrimary,
+  },
+  clearActiveFilterText: {
+    fontSize: FontSize.xs,
+    color: colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+  conceptBadge: {
+    backgroundColor: colors.bgInput,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  conceptBadgeText: {
+    fontSize: FontSize.xs - 2,
+    color: colors.primary,
+    fontWeight: FontWeight.semibold,
   },
 });

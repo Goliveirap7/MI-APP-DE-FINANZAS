@@ -52,16 +52,6 @@ export default function CategoryProgressRow({ data, style, mode = 'list' }: Prop
   }, [ratio]);
 
   const barColor = sobrePasado ? colors.expense : colors.primary;
-  
-  // Health Emoji
-  const rawRatio = presupuesto > 0 ? real / presupuesto : 0;
-  let healthEmoji = '';
-  if (presupuesto > 0) {
-    if (rawRatio < 0.5) healthEmoji = '😎';
-    else if (rawRatio < 0.9) healthEmoji = '🙂';
-    else if (rawRatio <= 1.0) healthEmoji = '😅';
-    else healthEmoji = '🥵';
-  }
 
   if (mode === 'grid') {
     return (
@@ -75,7 +65,6 @@ export default function CategoryProgressRow({ data, style, mode = 'list' }: Prop
           <Text style={[styles.gridDiferencia, { color: sobrePasado ? colors.expense : colors.income }]} numberOfLines={1}>
             {sobrePasado ? '-' : '+'}{formatCurrency(Math.abs(diferencia))}
           </Text>
-          {!!healthEmoji && <Text style={{ fontSize: FontSize.sm }}>{healthEmoji}</Text>}
         </View>
 
         <View style={styles.trackOuter}>
@@ -112,11 +101,10 @@ export default function CategoryProgressRow({ data, style, mode = 'list' }: Prop
           {iconSource && <Image source={iconSource} style={styles.listIcon} resizeMode="contain" />}
           <Text style={styles.nombre} numberOfLines={1}>{nombre}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={[styles.diferencia, { color: sobrePasado ? colors.expense : colors.income }]}>
             {sobrePasado ? '-' : '+'}{formatCurrency(Math.abs(diferencia))}
           </Text>
-          {!!healthEmoji && <Text style={{ fontSize: FontSize.sm }}>{healthEmoji}</Text>}
         </View>
       </View>
 
